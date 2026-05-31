@@ -30,10 +30,15 @@ object YouTubeExtractorService {
     }
 
     private val youtube get() = ServiceList.YouTube
+    private val soundcloud get() = ServiceList.SoundCloud
 
     suspend fun resolveUrl(videoUrl: String): StreamResult = withContext(Dispatchers.IO) {
         init()
-        val info: StreamInfo = StreamInfo.getInfo(youtube, videoUrl)
+        val service = ServiceList.all().firstOrNull { 
+            try { it.getStreamExtractor(videoUrl) != null } catch (e: Exception) { false }
+        } ?: youtube
+
+        val info: StreamInfo = StreamInfo.getInfo(service, videoUrl)
 
         // Muxed video (heeft audio) op de hoogste resolutie via .content
         val muxed = info.videoStreams
@@ -47,7 +52,9 @@ object YouTubeExtractorService {
                 videoStreamUrl = muxed.content,
                 audioStreamUrl = null,
                 isMuxed = true,
-                thumbnailUrl = info.thumbnails.firstOrNull()?.url
+                thumbnailUrl = info.thumbnails.firstOrNull()?.url,
+                uploader = info.uploaderName,
+                originalUrl = videoUrl
             )
         }
 
@@ -65,20 +72,23 @@ object YouTubeExtractorService {
             videoStreamUrl = videoOnly?.content,
             audioStreamUrl = audioOnly?.content,
             isMuxed = false,
-            thumbnailUrl = info.thumbnails.firstOrNull()?.url
+            thumbnailUrl = info.thumbnails.firstOrNull()?.url,
+            uploader = info.uploaderName,
+            originalUrl = videoUrl
         )
     }
 
-    suspend fun resolveSearch(query: String): StreamResult? = withContext(Dispatchers.IO) {
+    suspend fun resolveSearch(query: String, serviceId: Int = 0): StreamResult? = withContext(Dispatchers.IO) {
         init()
-        val first = search(query, 1).firstOrNull() ?: return@withContext null
+        val first = search(query, 1, serviceId).firstOrNull() ?: return@withContext null
         resolveUrl(first.url)
     }
 
-    suspend fun search(query: String, limit: Int = 20): List<SearchResultItem> =
+    suspend fun search(query: String, limit: Int = 20, serviceId: Int = 0): List<SearchResultItem> =
         withContext(Dispatchers.IO) {
             init()
-            val searchInfo = SearchInfo.getInfo(youtube, youtube.searchQHFactory.fromQuery(query))
+            val service = if (serviceId == 1) soundcloud else youtube
+            val searchInfo = SearchInfo.getInfo(service, service.searchQHFactory.fromQuery(query))
             searchInfo.relatedItems
                 .filterIsInstance<StreamInfoItem>()
                 .filter { it.url != null }
@@ -93,4 +103,23 @@ object YouTubeExtractorService {
                     )
                 }
         }
+
+    suspend fun getTrending(serviceId: Int = 0): List<SearchResultItem> = withContext(Dispatchers.IO) {
+        init()
+        val service = if (serviceId == 1) soundcloud else youtube
+        val kiosk = service.kioskList.getDefaultKioskId()
+        val info = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(service, kiosk)
+        info.relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .take(20)
+            .map { item ->
+                SearchResultItem(
+                    title = item.name,
+                    url = item.url,
+                    uploader = item.uploaderName,
+                    durationSeconds = item.duration,
+                    thumbnailUrl = item.thumbnails.firstOrNull()?.url
+                )
+            }
+    }
 }

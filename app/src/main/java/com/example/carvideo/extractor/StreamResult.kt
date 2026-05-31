@@ -16,5 +16,8 @@ data class StreamResult(
     val audioStreamUrl: String?,
     /** True when videoStreamUrl already contains audio (no merging needed). */
     val isMuxed: Boolean,
-    val thumbnailUrl: String?
+    val thumbnailUrl: String?,
+    val uploader: String? = null,
+    /** The original YouTube/SoundCloud URL. */
+    val originalUrl: String? = null
 )

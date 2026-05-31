@@ -1,17 +1,24 @@
 package com.example.carvideo
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,9 +41,21 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         startService(Intent(this, PlaybackService::class.java))
         setContent {
-            CarVideoTheme {
+            val vm: SearchViewModel = viewModel()
+            val state by vm.state.collectAsState()
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val launcher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { /* handle result */ }
+                LaunchedEffect(Unit) {
+                    launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
+            CarVideoTheme(themeMode = state.themeMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    HomeScreen()
+                    HomeScreen(vm)
                 }
             }
         }
@@ -49,45 +68,137 @@ class MainActivity : ComponentActivity() {
 fun HomeScreen(vm: SearchViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        SettingsDialog(
+            currentTheme = state.themeMode,
+            onThemeChange = { vm.setThemeMode(it) },
+            onDismiss = { showSettings = false }
+        )
+    }
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(title = { Text("Car Video") })
+            Column {
+                CenterAlignedTopAppBar(
+                    title = { 
+                        Text(
+                            "Car Video",
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                        ) 
+                    },
+                    actions = {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, null)
+                        }
+                    }
+                )
+                SecondaryTabRow(selectedTabIndex = selectedTab) {
+                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
+                        Text("For You", modifier = Modifier.padding(12.dp))
+                    }
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
+                        Text("Trending", modifier = Modifier.padding(12.dp))
+                    }
+                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
+                        Text("Search", modifier = Modifier.padding(12.dp))
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            val nextItem = vm.getNextItem()
+            val currentStream by com.example.carvideo.player.PlaybackState.current.collectAsState()
+            val videoMode by vm.videoMode.collectAsState()
+            
+            com.example.carvideo.ui.NowPlayingBar(
+                nextUpTitle = nextItem?.title,
+                isLiked = currentStream?.let { vm.isLiked(it.originalUrl ?: "") } ?: false,
+                onLikeClick = {
+                    currentStream?.let { stream ->
+                        vm.toggleLike(com.example.carvideo.extractor.SearchResultItem(
+                            title = stream.title,
+                            url = stream.originalUrl ?: "",
+                            uploader = stream.uploader,
+                            thumbnailUrl = stream.thumbnailUrl,
+                            durationSeconds = stream.durationSeconds
+                        ))
+                    }
+                },
+                onNextClick = { vm.skipNext() },
+                onPreviousClick = { vm.skipPrevious() },
+                onSeek = { vm.seekTo(it) },
+                videoMode = videoMode,
+                onToggleVideo = { vm.toggleVideoMode() }
+            )
         }
     ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
         ) {
-            SearchBar(
-                query = query,
-                onQueryChange = { query = it },
-                onSearch = { vm.search(query) }
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            when {
-                state.loading -> Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                state.error != null -> Text(
-                    state.error!!,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-                else -> LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(state.results) { item ->
-                        ResultCard(item) { vm.play(item) }
-                    }
-                }
+            when (selectedTab) {
+                0 -> ResultsList(state.forYou) { vm.play(it, state.forYou) }
+                1 -> ResultsList(state.trending) { vm.play(it, state.trending) }
+                2 -> SearchContent(query, { query = it }, { vm.search(query) }, state, vm)
             }
+        }
+    }
+}
+
+@UnstableApi
+@Composable
+private fun SearchContent(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    state: UiState,
+    vm: SearchViewModel
+) {
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(8.dp))
+        SearchBar(query, onQueryChange, onSearch)
+        Spacer(Modifier.height(8.dp))
+        
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = state.selectedService == 0,
+                onClick = { vm.setService(0) },
+                label = { Text("YouTube") }
+            )
+            FilterChip(
+                selected = state.selectedService == 1,
+                onClick = { vm.setService(1) },
+                label = { Text("SoundCloud") }
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        if (state.loading) {
+            Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (state.error != null) {
+            Text(state.error, color = MaterialTheme.colorScheme.error)
+        } else {
+            ResultsList(state.results) { vm.play(it, state.results) }
+        }
+    }
+}
+
+@Composable
+private fun ResultsList(items: List<SearchResultItem>, onItemClick: (SearchResultItem) -> Unit) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(16.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(items) { item ->
+            ResultCard(item) { onItemClick(item) }
         }
     }
 }
@@ -117,7 +228,10 @@ private fun ResultCard(item: SearchResultItem, onClick: () -> Unit) {
     ElevatedCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+        )
     ) {
         Row(
             Modifier.padding(8.dp),
@@ -156,4 +270,42 @@ private fun ResultCard(item: SearchResultItem, onClick: () -> Unit) {
             )
         }
     }
+}
+
+@Composable
+fun SettingsDialog(
+    currentTheme: Int,
+    onThemeChange: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Settings") },
+        text = {
+            Column {
+                Text("Theme Mode", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    FilterChip(
+                        selected = currentTheme == 0,
+                        onClick = { onThemeChange(0) },
+                        label = { Text("System") }
+                    )
+                    FilterChip(
+                        selected = currentTheme == 1,
+                        onClick = { onThemeChange(1) },
+                        label = { Text("Light") }
+                    )
+                    FilterChip(
+                        selected = currentTheme == 2,
+                        onClick = { onThemeChange(2) },
+                        label = { Text("Dark") }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Sluiten") }
+        }
+    )
 }

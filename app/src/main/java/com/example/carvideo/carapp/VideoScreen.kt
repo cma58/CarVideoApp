@@ -84,6 +84,7 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
 
     override fun onGetTemplate(): Template {
         val playing = PlayerHolder.isPlaying()
+        val current = PlaybackState.current.value
 
         val playPause = Action.Builder()
             .setIcon(
@@ -98,14 +99,36 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
             }
             .build()
 
-        val load = Action.Builder()
-            .setIcon(icon(android.R.drawable.ic_menu_search))
-            .setOnClickListener { loadAndPlay(lastQuery) }
+        val prev = Action.Builder()
+            .setIcon(icon(android.R.drawable.ic_media_previous))
+            .setOnClickListener {
+                PlayerHolder.skipPrevious { item ->
+                    lifecycleScope.launch {
+                        val stream = YouTubeExtractorService.resolveUrl(item.url)
+                        PlayerHolder.play(stream)
+                        invalidate()
+                    }
+                }
+            }
+            .build()
+
+        val next = Action.Builder()
+            .setIcon(icon(android.R.drawable.ic_media_next))
+            .setOnClickListener {
+                PlayerHolder.skipNext { item ->
+                    lifecycleScope.launch {
+                        val stream = YouTubeExtractorService.resolveUrl(item.url)
+                        PlayerHolder.play(stream)
+                        invalidate()
+                    }
+                }
+            }
             .build()
 
         val actionStrip = ActionStrip.Builder()
-            .addAction(load)
+            .addAction(prev)
             .addAction(playPause)
+            .addAction(next)
             .build()
 
         return NavigationTemplate.Builder()

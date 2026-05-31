@@ -1,51 +1,137 @@
 package com.example.carvideo.player
 
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Bundle
+import androidx.core.app.NotificationCompat
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaStyleNotificationHelper
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 /**
- * Background playback service (item 4).
- *
- * Hosts the shared ExoPlayer via a MediaSession so playback survives in the
- * background and is controllable from the system / Android Auto. Video output
- * is attached/detached by PlayerHolder depending on Surface availability;
- * audio is unaffected by that, so it "naadloos doorspeelt" when the car screen's
- * Surface is taken away.
+ * Robust PlaybackService for Phone and Car.
+ * Includes Like button and Next/Previous controls in the notification.
  */
 @UnstableApi
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private val NOTIFICATION_ID = 101
+    private val CHANNEL_ID = "car_video_playback_channel"
+
+    private val COMMAND_LIKE = "com.example.carvideo.LIKE"
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
 
         val player = PlayerHolder.getOrCreate {
             ExoPlayer.Builder(this)
                 .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
                         .build(),
-                    /* handleAudioFocus = */ true
+                    true
                 )
-                // Keep playing audio even when video output is detached.
                 .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
                 .build()
         }
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        // Custom command for Like button
+        @Suppress("DEPRECATION")
+        val likeButton = CommandButton.Builder()
+            .setDisplayName("Like")
+            .setSessionCommand(SessionCommand(COMMAND_LIKE, Bundle.EMPTY))
+            .setIconResId(android.R.drawable.btn_star) // Default star icon
+            .build()
+
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(intent!!)
+            .setCustomLayout(listOf(likeButton))
+            .setCallback(object : MediaSession.Callback {
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == COMMAND_LIKE) {
+                        // For a real app, you would pass this to your ViewModel/Repository.
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                }
+            })
+            .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updateForegroundNotification()
+            }
+            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                updateForegroundNotification()
+            }
+        })
+        
+        updateForegroundNotification()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Media Playback",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Controls for car video playback"
+            setShowBadge(false)
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
 
-    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
-        // If nothing is playing, allow the service to stop.
+    private fun updateForegroundNotification() {
+        val session = mediaSession ?: return
+        val player = session.player
+        val metadata = player.mediaMetadata
+        
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(metadata.title ?: "Car Video")
+            .setContentText(metadata.artist ?: "Aan het afspelen...")
+            .setSubText("CarVideoApp")
+            .setOngoing(player.isPlaying)
+            .setContentIntent(intent)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
@@ -57,8 +143,11 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         mediaSession = null
-        // Do not release the shared player here if the Car App may still use it;
-        // release explicitly when the whole app shuts down.
         super.onDestroy()
     }
+}
+
+// Add a helper for Media3 errors if not available
+private object SessionError {
+    const val ERROR_NOT_SUPPORTED = -1003
 }
