@@ -4,31 +4,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 /**
  * Resolves a YouTube video URL or search term into directly playable stream URLs.
- *
- * NOTE: NewPipeExtractor scrapes YouTube's web pages. This violates YouTube's
- * Terms of Service and breaks whenever YouTube changes its internals — pin the
- * library version and expect to update it periodically. Intended for personal use.
- *
- * All calls are network-bound and MUST run off the main thread (handled here
- * via Dispatchers.IO).
+ * Gebruikt de werkende aanpak: NewPipe v0.26.1, Localization.DEFAULT, en .content
+ * voor stream-URLs (i.p.v. .url).
  */
 object YouTubeExtractorService {
 
     @Volatile
     private var initialized = false
 
-    /** Call once before any extraction (e.g. from Application.onCreate). */
     fun init() {
         if (initialized) return
         synchronized(this) {
             if (!initialized) {
-                NewPipe.init(OkHttpDownloader.instance)
+                NewPipe.init(OkHttpDownloader.instance, Localization.DEFAULT)
                 initialized = true
             }
         }
@@ -36,62 +31,66 @@ object YouTubeExtractorService {
 
     private val youtube get() = ServiceList.YouTube
 
-    /**
-     * Resolve a direct YouTube video URL into stream URLs.
-     */
     suspend fun resolveUrl(videoUrl: String): StreamResult = withContext(Dispatchers.IO) {
         init()
         val info: StreamInfo = StreamInfo.getInfo(youtube, videoUrl)
 
-        // Prefer a muxed video stream (has audio) for simplicity; fall back to
-        // separate video + audio streams (DASH) for higher quality.
+        // Muxed video (heeft audio) op de hoogste resolutie via .content
         val muxed = info.videoStreams
-            .filter { it.url != null }
-            .maxByOrNull { it.getResolution()?.removeSuffix("p")?.toIntOrNull() ?: 0 }
+            .filter { it.content != null && it.format?.mimeType?.contains("mp4") == true }
+            .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
 
-        if (muxed?.url != null) {
+        if (muxed?.content != null) {
             return@withContext StreamResult(
                 title = info.name,
                 durationSeconds = info.duration,
-                videoStreamUrl = muxed.url,
+                videoStreamUrl = muxed.content,
                 audioStreamUrl = null,
                 isMuxed = true,
                 thumbnailUrl = info.thumbnails.firstOrNull()?.url
             )
         }
 
-        // Video-only + audio-only (merge in ExoPlayer)
+        // Anders video-only + audio-only mergen
         val videoOnly = info.videoOnlyStreams
-            .filter { it.url != null }
-            .maxByOrNull { it.getResolution()?.removeSuffix("p")?.toIntOrNull() ?: 0 }
+            .filter { it.content != null }
+            .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
         val audioOnly = info.audioStreams
-            .filter { it.url != null }
+            .filter { it.content != null }
             .maxByOrNull { it.averageBitrate }
 
         StreamResult(
             title = info.name,
             durationSeconds = info.duration,
-            videoStreamUrl = videoOnly?.url,
-            audioStreamUrl = audioOnly?.url,
+            videoStreamUrl = videoOnly?.content,
+            audioStreamUrl = audioOnly?.content,
             isMuxed = false,
             thumbnailUrl = info.thumbnails.firstOrNull()?.url
         )
     }
 
-    /**
-     * Search YouTube and return the first matching video's stream URLs.
-     */
     suspend fun resolveSearch(query: String): StreamResult? = withContext(Dispatchers.IO) {
         init()
-        val searchInfo = SearchInfo.getInfo(
-            youtube,
-            youtube.searchQHFactory.fromQuery(query)
-        )
-        val firstVideo = searchInfo.relatedItems
-            .filterIsInstance<StreamInfoItem>()
-            .firstOrNull { it.url != null }
-            ?: return@withContext null
-
-        resolveUrl(firstVideo.url)
+        val first = search(query, 1).firstOrNull() ?: return@withContext null
+        resolveUrl(first.url)
     }
+
+    suspend fun search(query: String, limit: Int = 20): List<SearchResultItem> =
+        withContext(Dispatchers.IO) {
+            init()
+            val searchInfo = SearchInfo.getInfo(youtube, youtube.searchQHFactory.fromQuery(query))
+            searchInfo.relatedItems
+                .filterIsInstance<StreamInfoItem>()
+                .filter { it.url != null }
+                .take(limit)
+                .map { item ->
+                    SearchResultItem(
+                        title = item.name,
+                        url = item.url,
+                        uploader = item.uploaderName,
+                        durationSeconds = item.duration,
+                        thumbnailUrl = item.thumbnails.firstOrNull()?.url
+                    )
+                }
+        }
 }

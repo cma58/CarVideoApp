@@ -65,7 +65,7 @@ dependencies {
     implementation("androidx.car.app:app-projected:$car")
 
     // NewPipeExtractor (YouTube scraping). Pin a known tag.
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.8")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1")
 
     // NewPipe needs an HTTP client for its Downloader impl
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
