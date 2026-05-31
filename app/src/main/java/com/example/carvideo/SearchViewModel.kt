@@ -29,7 +29,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         // Zorg dat de gedeelde speler bestaat (telefoon-weergave + achtergrond).
-        PlayerHolder.ensureCreated {
+        PlayerHolder.getOrCreate {
             ExoPlayer.Builder(getApplication())
                 .setAudioAttributes(
                     AudioAttributes.Builder()
