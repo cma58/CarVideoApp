@@ -1,0 +1,36 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.carvideo.app-mergeDebugResources-31:/values-night-v8/values-night-v8.xml",
+            "map": [
+                {
+                    "source": "/data/data/com.termux/files/home/.gradle/caches/8.9/transforms/f5fd0c4db23e1df5b60830f4c7dda1ab/transformed/appcompat-1.7.0/res/values-night-v8/values-night-v8.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,125,209,293,389,491,593,687",
+                        "endColumns": "69,83,83,95,101,101,93,88",
+                        "endOffsets": "120,204,288,384,486,588,682,771"
+                    },
+                    "to": {
+                        "startLines": "6,7,8,9,10,11,12,13",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "253,323,407,491,587,689,791,885",
+                        "endColumns": "69,83,83,95,101,101,93,88",
+                        "endOffsets": "318,402,486,582,684,786,880,969"
+                    }
+                },
+                {
+                    "source": "/data/data/com.termux/files/home/.gradle/caches/8.9/transforms/e9bffb779fc10d671a3d228ca3be8b83/transformed/app-1.4.0/res/values-night-v8/values-night-v8.xml",
+                    "from": {
+                        "startLines": "2,3,4,5",
+                        "startColumns": "4,4,4,4",
+                        "startOffsets": "55,104,154,202",
+                        "endColumns": "48,49,47,50",
+                        "endOffsets": "99,149,197,248"
+                    }
+                }
+            ]
+        }
+    ]
+}
