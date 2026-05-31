@@ -1,5 +1,0 @@
-# NewPipeExtractor uses reflection-heavy parsing; keep its classes.
--keep class org.schabi.newpipe.extractor.** { *; }
--keep class org.mozilla.javascript.** { *; }
--dontwarn org.mozilla.javascript.**
--dontwarn org.schabi.newpipe.extractor.**
