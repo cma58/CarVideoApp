@@ -18,8 +18,6 @@ import com.example.carvideo.extractor.YouTubeExtractorService
 import com.example.carvideo.player.PlaybackState
 import com.example.carvideo.player.PlayerHolder
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,14 +26,19 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val PREFS_NAME = "car_video_private_prefs"
+private const val MAX_HISTORY = 80
+private const val PREFETCH_FAST_COUNT = 2
+
 data class UiState(
     val loading: Boolean = false,
     val results: List<SearchResultItem> = emptyList(),
     val trending: List<SearchResultItem> = emptyList(),
     val forYou: List<SearchResultItem> = emptyList(),
+    val history: List<SearchResultItem> = emptyList(),
     val error: String? = null,
-    val selectedService: Int = 0, // 0: YouTube, 1: SoundCloud
-    val themeMode: Int = 0 // 0: System, 1: Light, 2: Dark
+    val selectedService: Int = 0, // 0 YouTube, 1 SoundCloud
+    val themeMode: Int = 0 // 0 System, 1 Light, 2 Dark
 )
 
 @UnstableApi
@@ -44,18 +47,22 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    // Likes als VOLLEDIGE items (titel, url, uploader, thumbnail) -> echte For You.
+    private val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val likedItems = mutableListOf<SearchResultItem>()
-    private val prefs = app.getSharedPreferences("car_video_prefs", Context.MODE_PRIVATE)
+    private val historyItems = mutableListOf<SearchResultItem>()
 
     private val _videoMode = MutableStateFlow(false)
     val videoMode = _videoMode.asStateFlow()
 
+    @Volatile
+    private var playGeneration = 0
+
     init {
         loadLikedItems()
+        loadHistoryItems()
 
         val savedTheme = prefs.getInt("theme_mode", 0)
-        _state.value = _state.value.copy(themeMode = savedTheme)
+        _state.value = _state.value.copy(themeMode = savedTheme, history = historyItems.toList())
 
         val p = PlayerHolder.getOrCreate {
             ExoPlayer.Builder(getApplication())
@@ -71,17 +78,27 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 .build()
         }
 
-        // Houd de now-playing balk synchroon bij elke (auto/handmatige) overgang.
         p.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                mediaItem?.let { PlaybackState.setCurrent(it.toStreamResult()) }
+                mediaItem?.let { item ->
+                    val stream = item.toStreamResult()
+                    PlaybackState.setCurrent(stream)
+                    recordPlay(
+                        SearchResultItem(
+                            title = stream.title,
+                            url = stream.originalUrl ?: item.mediaId,
+                            uploader = stream.uploader,
+                            durationSeconds = stream.durationSeconds,
+                            thumbnailUrl = stream.thumbnailUrl
+                        )
+                    )
+                }
             }
         })
 
         loadInitialContent()
     }
 
-    /** "Volgende" leest rechtstreeks uit de speler-timeline. */
     fun getNextItem(): SearchResultItem? {
         val p = PlayerHolder.get() ?: return null
         if (!p.hasNextMediaItem()) return null
@@ -105,49 +122,36 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value = _state.value.copy(
                     trending = trending,
                     forYou = forYou,
+                    history = historyItems.toList(),
                     error = null
                 )
             } catch (e: Exception) {
-                // Niet stil falen: laat zien waarom de lijst leeg blijft, en val terug op likes.
                 _state.value = _state.value.copy(
-                    forYou = likedItems.take(25),
-                    error = "Kon trending niet laden: ${e.message}"
+                    forYou = buildForYou(emptyList()),
+                    history = historyItems.toList(),
+                    error = "Kon startlijst niet laden: ${e.message}"
                 )
             }
         }
     }
 
     /**
-     * SAMENGEVOEGD UIT YTAuto (idee uit PlayEvent-analytics, maar zonder database):
-     * For You = je favorieten, gevolgd door NIEUWE nummers van je meest-gelikete
-     * artiesten, met trending als opvulling. Hoe meer je liket, hoe persoonlijker.
+     * Private recommendation algorithm. No server, no account, only your local likes/history.
      */
-    private suspend fun buildForYou(trending: List<SearchResultItem>): List<SearchResultItem> {
-        val topArtists = likedItems
-            .mapNotNull { it.uploader?.takeIf { u -> u.isNotBlank() } }
-            .groupingBy { it }
-            .eachCount()
-            .entries
-            .sortedByDescending { it.value }
-            .take(3)
-            .map { it.key }
-
-        val recommendations = mutableListOf<SearchResultItem>()
-        for (artist in topArtists) {
-            try {
-                recommendations += YouTubeExtractorService.search(
-                    artist, limit = 5, serviceId = _state.value.selectedService
-                )
-            } catch (_: Exception) { /* een artiest die faalt mag de rest niet blokkeren */ }
+    private fun buildForYou(trending: List<SearchResultItem>): List<SearchResultItem> {
+        val artistScores = mutableMapOf<String, Int>()
+        likedItems.forEach { it.uploader?.let { artist -> artistScores[artist] = (artistScores[artist] ?: 0) + 50 } }
+        historyItems.take(25).forEachIndexed { index, item ->
+            item.uploader?.let { artist -> artistScores[artist] = (artistScores[artist] ?: 0) + (25 - index).coerceAtLeast(1) }
         }
 
-        return (likedItems + recommendations + trending)
+        return (likedItems + historyItems + trending.sortedByDescending { artistScores[it.uploader] ?: 0 })
             .distinctBy { it.url }
-            .take(25)
+            .take(30)
     }
 
     fun setService(serviceId: Int) {
-        _state.value = _state.value.copy(selectedService = serviceId)
+        _state.value = _state.value.copy(selectedService = serviceId, loading = true, error = null)
         loadInitialContent()
     }
 
@@ -158,18 +162,28 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(loading = true, error = null)
         viewModelScope.launch {
             try {
-                if (q.startsWith("http")) {
-                    val stream = YouTubeExtractorService.resolveUrl(q)
+                if (q.startsWith("http", ignoreCase = true)) {
+                    val stream = withContext(Dispatchers.IO) { YouTubeExtractorService.resolveUrl(q) }
                     PlayerHolder.play(stream)
+                    recordPlay(
+                        SearchResultItem(
+                            title = stream.title,
+                            url = stream.originalUrl ?: q,
+                            uploader = stream.uploader,
+                            durationSeconds = stream.durationSeconds,
+                            thumbnailUrl = stream.thumbnailUrl
+                        )
+                    )
+                    _videoMode.value = true
                     _state.value = _state.value.copy(loading = false)
                 } else {
                     val results = YouTubeExtractorService.search(q, serviceId = _state.value.selectedService)
+                    PlaybackState.setPlaylist(results)
                     _state.value = _state.value.copy(
                         loading = false,
                         results = results,
                         error = if (results.isEmpty()) "Geen resultaten" else null
                     )
-                    PlaybackState.setPlaylist(results)
                 }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(loading = false, error = "Fout: ${e.message}")
@@ -178,54 +192,83 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Speelt een item af ALS DEEL VAN DE HELE LIJST. Dankzij de stream-cache in
-     * YouTubeExtractorService gaat het opnieuw laden van een wachtrij nu snel.
+     * Audio-first playback. Only the selected item is resolved before playback starts.
+     * The rest of the queue is added lazily in the background.
      */
     fun play(item: SearchResultItem, list: List<SearchResultItem>? = null) {
-        val queue = list ?: _state.value.results.ifEmpty { _state.value.trending }.ifEmpty { listOf(item) }
+        val baseQueue = (list ?: _state.value.results.ifEmpty { _state.value.trending }).ifEmpty { listOf(item) }
+        val clickedIndex = baseQueue.indexOfFirst { it.url == item.url }.coerceAtLeast(0)
+        val orderedQueue = baseQueue.drop(clickedIndex) + baseQueue.take(clickedIndex)
+        val generation = ++playGeneration
+
         _state.value = _state.value.copy(loading = true, error = null)
-        PlaybackState.setPlaylist(queue)
+        _videoMode.value = false
+        PlaybackState.setPlaylist(orderedQueue)
         PlaybackState.setCurrent(item.toStreamResult())
+        recordPlay(item)
 
         viewModelScope.launch {
             try {
-                val mediaItems = withContext(Dispatchers.IO) {
-                    queue.map { si ->
-                        async {
-                            val audioUrl = YouTubeExtractorService.getAudioStreamUrl(si.url)
-                            if (audioUrl != null) si.toMediaItem(audioUrl) else null
-                        }
-                    }.awaitAll().filterNotNull()
+                val firstAudioUrl = withContext(Dispatchers.IO) { YouTubeExtractorService.getAudioStreamUrl(item.url) }
+                if (generation != playGeneration) return@launch
+
+                if (firstAudioUrl == null) {
+                    _state.value = _state.value.copy(loading = false, error = "Kon geen audio stream laden")
+                    return@launch
                 }
 
-                withContext(Dispatchers.Main) {
-                    if (mediaItems.isEmpty()) {
-                        _state.value = _state.value.copy(loading = false, error = "Kon geen streams laden")
-                        return@withContext
-                    }
-                    val startIndex = mediaItems.indexOfFirst { it.mediaId == item.url }.coerceAtLeast(0)
-                    PlayerHolder.setQueue(mediaItems, startIndex)
-                    _videoMode.value = false
-                    _state.value = _state.value.copy(loading = false)
-                }
+                PlayerHolder.setQueue(listOf(item.toMediaItem(firstAudioUrl)), 0)
+                _state.value = _state.value.copy(loading = false, history = historyItems.toList())
+
+                appendQueueLazily(orderedQueue.drop(1), generation)
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
+                if (generation == playGeneration) {
                     _state.value = _state.value.copy(loading = false, error = "Fout: ${e.message}")
                 }
             }
         }
     }
 
+    private fun appendQueueLazily(items: List<SearchResultItem>, generation: Int) {
+        viewModelScope.launch {
+            val fast = items.take(PREFETCH_FAST_COUNT)
+            val slow = items.drop(PREFETCH_FAST_COUNT)
+
+            val firstBatch = withContext(Dispatchers.IO) { resolveMediaItems(fast) }
+            if (generation != playGeneration) return@launch
+            PlayerHolder.appendToQueue(firstBatch)
+
+            for (item in slow) {
+                if (generation != playGeneration) return@launch
+                val mediaItem = withContext(Dispatchers.IO) { resolveMediaItems(listOf(item)).firstOrNull() }
+                if (generation != playGeneration) return@launch
+                mediaItem?.let { PlayerHolder.appendToQueue(listOf(it)) }
+            }
+        }
+    }
+
+    private suspend fun resolveMediaItems(items: List<SearchResultItem>): List<MediaItem> {
+        return items.mapNotNull { item ->
+            try {
+                val audioUrl = YouTubeExtractorService.getAudioStreamUrl(item.url)
+                if (audioUrl != null) item.toMediaItem(audioUrl) else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
     fun toggleVideoMode() {
-        _videoMode.value = !_videoMode.value
         val current = PlaybackState.current.value ?: return
         val url = current.originalUrl ?: return
+        val targetVideoMode = !_videoMode.value
+        _videoMode.value = targetVideoMode
 
         viewModelScope.launch {
             try {
-                if (_videoMode.value) {
+                if (targetVideoMode) {
                     val stream = withContext(Dispatchers.IO) { YouTubeExtractorService.resolveUrl(url) }
-                    withContext(Dispatchers.Main) { PlayerHolder.play(stream) }
+                    PlayerHolder.play(stream)
                 } else {
                     val item = SearchResultItem(
                         title = current.title,
@@ -237,29 +280,21 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                     play(item, PlaybackState.playlist.value.ifEmpty { listOf(item) })
                 }
             } catch (e: Exception) {
-                _state.value = _state.value.copy(error = "Fout: ${e.message}")
+                _videoMode.value = false
+                _state.value = _state.value.copy(error = "Video kon niet laden, audio blijft veilig: ${e.message}")
             }
         }
     }
 
     fun skipNext() = PlayerHolder.seekToNext()
-
     fun skipPrevious() = PlayerHolder.seekToPrevious()
-
     fun seekTo(positionMs: Long) = PlayerHolder.seekTo(positionMs)
 
     fun toggleLike(item: SearchResultItem) {
         val existing = likedItems.indexOfFirst { it.url == item.url }
-        if (existing != -1) {
-            likedItems.removeAt(existing)
-        } else {
-            likedItems.add(item)
-        }
+        if (existing != -1) likedItems.removeAt(existing) else likedItems.add(0, item)
         saveLikedItems()
-        // Goedkope update: favorieten meteen bovenaan For You; volledige smaak-
-        // aanbevelingen worden bij de volgende loadInitialContent vernieuwd.
-        val forYou = (likedItems + _state.value.forYou).distinctBy { it.url }.take(25)
-        _state.value = _state.value.copy(forYou = forYou)
+        _state.value = _state.value.copy(forYou = buildForYou(_state.value.trending))
     }
 
     fun setThemeMode(mode: Int) {
@@ -269,31 +304,55 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
 
     fun isLiked(url: String): Boolean = likedItems.any { it.url == url }
 
-    // ---- Likes persistentie (JSON in SharedPreferences, geen extra dependency) ----
+    private fun recordPlay(item: SearchResultItem) {
+        if (item.url.isBlank()) return
+        historyItems.removeAll { it.url == item.url }
+        historyItems.add(0, item)
+        while (historyItems.size > MAX_HISTORY) historyItems.removeAt(historyItems.lastIndex)
+        saveHistoryItems()
+        _state.value = _state.value.copy(history = historyItems.toList(), forYou = buildForYou(_state.value.trending))
+    }
 
     private fun loadLikedItems() {
         likedItems.clear()
-        val json = prefs.getString("liked_items", null) ?: return
-        try {
-            val arr = JSONArray(json)
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                likedItems.add(
-                    SearchResultItem(
-                        title = o.optString("title"),
-                        url = o.optString("url"),
-                        uploader = o.optString("uploader").takeIf { it.isNotEmpty() },
-                        durationSeconds = o.optLong("duration", 0),
-                        thumbnailUrl = o.optString("thumb").takeIf { it.isNotEmpty() }
-                    )
-                )
-            }
-        } catch (_: Exception) { /* corrupt -> negeren */ }
+        likedItems += readItems("liked_items")
     }
 
-    private fun saveLikedItems() {
+    private fun saveLikedItems() = writeItems("liked_items", likedItems)
+
+    private fun loadHistoryItems() {
+        historyItems.clear()
+        historyItems += readItems("play_history")
+    }
+
+    private fun saveHistoryItems() = writeItems("play_history", historyItems)
+
+    private fun readItems(key: String): List<SearchResultItem> {
+        val json = prefs.getString(key, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    add(
+                        SearchResultItem(
+                            title = o.optString("title"),
+                            url = o.optString("url"),
+                            uploader = o.optString("uploader").takeIf { it.isNotEmpty() },
+                            durationSeconds = o.optLong("duration", 0),
+                            thumbnailUrl = o.optString("thumb").takeIf { it.isNotEmpty() }
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun writeItems(key: String, items: List<SearchResultItem>) {
         val arr = JSONArray()
-        likedItems.forEach { item ->
+        items.forEach { item ->
             arr.put(
                 JSONObject()
                     .put("title", item.title)
@@ -303,10 +362,8 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                     .put("thumb", item.thumbnailUrl ?: "")
             )
         }
-        prefs.edit().putString("liked_items", arr.toString()).apply()
+        prefs.edit().putString(key, arr.toString()).apply()
     }
-
-    // ---- Mappers ----
 
     private fun SearchResultItem.toMediaItem(streamUri: String): MediaItem =
         MediaItem.Builder()
