@@ -31,17 +31,17 @@ jobs:
 
       - run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Hernoem APK met versie
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk "out/CarVideoApp-v${{ steps.ver.outputs.version }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "out/CarVideoApp-private-v${{ steps.ver.outputs.version }}.apk"
 
       - name: Maak release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ steps.ver.outputs.version }}"
-          name: "CarVideoApp v${{ steps.ver.outputs.version }}"
-          files: out/CarVideoApp-v${{ steps.ver.outputs.version }}.apk
+          name: "CarVideoApp Private v${{ steps.ver.outputs.version }}"
+          files: out/CarVideoApp-private-v${{ steps.ver.outputs.version }}.apk
