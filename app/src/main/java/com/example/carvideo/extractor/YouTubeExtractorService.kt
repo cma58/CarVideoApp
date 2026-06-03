@@ -8,16 +8,24 @@ import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Resolves a YouTube video URL or search term into directly playable stream URLs.
- * Gebruikt de werkende aanpak: NewPipe v0.26.1, Localization.DEFAULT, en .content
- * voor stream-URLs (i.p.v. .url).
+ * Resolves a YouTube/SoundCloud URL or search term into directly playable stream URLs.
+ * NewPipe v0.26.1, Localization.DEFAULT, en .content voor stream-URLs.
+ *
+ * SAMENGEVOEGD UIT YTAuto: een stream-URL-cache met TTL. YouTube-stream-URL's zijn
+ * ~6 uur geldig; we cachen ze 5 uur zodat we niet bij elke play opnieuw hoeven te
+ * resolven. Dit maakt het laden van een wachtrij veel sneller.
  */
 object YouTubeExtractorService {
 
     @Volatile
     private var initialized = false
+
+    // videoUrl -> Pair(streamUrl, expiryTimeMs). Thread-safe want we resolven parallel.
+    private val audioUrlCache = ConcurrentHashMap<String, Pair<String, Long>>()
+    private const val CACHE_TTL_MS = 5L * 60L * 60L * 1000L // 5 uur
 
     fun init() {
         if (initialized) return
@@ -32,15 +40,51 @@ object YouTubeExtractorService {
     private val youtube get() = ServiceList.YouTube
     private val soundcloud get() = ServiceList.SoundCloud
 
+    /**
+     * Beste AUDIO-stream-URL (een afspeelbare URI), met cache.
+     * Dit is het betrouwbare pad voor de wachtrij: een URI per item, werkt op de
+     * achtergrond en laat ExoPlayer een echte timeline opbouwen (next/prev).
+     */
+    suspend fun getAudioStreamUrl(videoUrl: String): String? {
+        // 1) Cache-hit?
+        audioUrlCache[videoUrl]?.let { (url, expiry) ->
+            if (System.currentTimeMillis() < expiry) return url
+        }
+        // 2) Anders resolven en cachen.
+        return withContext(Dispatchers.IO) {
+            init()
+            try {
+                val service = ServiceList.all().firstOrNull {
+                    try { it.getStreamExtractor(videoUrl) != null } catch (e: Exception) { false }
+                } ?: youtube
+                val info = StreamInfo.getInfo(service, videoUrl)
+
+                val best = info.audioStreams
+                    .filter { it.content != null }
+                    .maxByOrNull { it.averageBitrate }
+                    ?.content
+                    ?: info.videoStreams
+                        .filter { it.content != null }
+                        .firstOrNull()
+                        ?.content
+
+                best?.also { url ->
+                    audioUrlCache[videoUrl] = url to (System.currentTimeMillis() + CACHE_TTL_MS)
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
     suspend fun resolveUrl(videoUrl: String): StreamResult = withContext(Dispatchers.IO) {
         init()
-        val service = ServiceList.all().firstOrNull { 
+        val service = ServiceList.all().firstOrNull {
             try { it.getStreamExtractor(videoUrl) != null } catch (e: Exception) { false }
         } ?: youtube
 
         val info: StreamInfo = StreamInfo.getInfo(service, videoUrl)
 
-        // Muxed video (heeft audio) op de hoogste resolutie via .content
         val muxed = info.videoStreams
             .filter { it.content != null && it.format?.mimeType?.contains("mp4") == true }
             .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
@@ -58,7 +102,6 @@ object YouTubeExtractorService {
             )
         }
 
-        // Anders video-only + audio-only mergen
         val videoOnly = info.videoOnlyStreams
             .filter { it.content != null }
             .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
