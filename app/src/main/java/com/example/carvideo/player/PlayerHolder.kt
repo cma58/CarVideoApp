@@ -3,30 +3,30 @@ package com.example.carvideo.player
 import android.view.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import com.example.carvideo.extractor.StreamResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
- * Single shared ExoPlayer instance. Both the MediaSession (PlaybackService) and
- * the Android Auto Screen (which owns the car's Surface) reference the same
- * player so video output can be attached/detached without interrupting audio.
+ * One shared ExoPlayer instance for phone UI, notification and car UI.
  *
- * BELANGRIJK: de speler bezit nu zelf de wachtrij (setQueue). Daardoor heeft de
- * MediaSession een echte timeline met meerdere items en tonen Android Auto /
- * Automotive automatisch de Volgende/Vorige-knoppen.
+ * Private-use changes:
+ * - supports lazy queue append, so the app does not resolve 20 streams at once;
+ * - skips to next item on many playback errors instead of stopping completely;
+ * - keeps audio alive when a car video surface disappears.
  */
 object PlayerHolder {
 
@@ -34,8 +34,6 @@ object PlayerHolder {
     private var player: ExoPlayer? = null
 
     private var currentSurface: Surface? = null
-
-    // Eén nette scope die we netjes kunnen cancellen (geen GlobalScope-lek meer).
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var progressJob: Job? = null
 
@@ -47,11 +45,21 @@ object PlayerHolder {
 
     fun getOrCreate(create: () -> ExoPlayer): ExoPlayer {
         return player ?: synchronized(this) {
-            player ?: create().also {
-                player = it
-                it.addListener(object : Player.Listener {
+            player ?: create().also { exo ->
+                player = exo
+                exo.addListener(object : Player.Listener {
                     override fun onEvents(p: Player, events: Player.Events) {
                         _duration.value = p.duration.coerceAtLeast(0)
+                        _currentPosition.value = p.currentPosition.coerceAtLeast(0)
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        PlaybackState.setError("Playback-fout: ${error.errorCodeName}")
+                        if (exo.hasNextMediaItem()) {
+                            exo.seekToNextMediaItem()
+                            exo.prepare()
+                            exo.play()
+                        }
                     }
                 })
                 startProgressMonitor()
@@ -63,9 +71,9 @@ object PlayerHolder {
         progressJob?.cancel()
         progressJob = scope.launch {
             while (isActive) {
-                val p = player
-                if (p != null && p.isPlaying) {
-                    _currentPosition.value = p.currentPosition
+                player?.let { p ->
+                    _currentPosition.value = p.currentPosition.coerceAtLeast(0)
+                    _duration.value = p.duration.coerceAtLeast(0)
                 }
                 delay(1000)
             }
@@ -74,13 +82,11 @@ object PlayerHolder {
 
     fun get(): ExoPlayer? = player
 
-    /** Attach the car screen's Surface. Video renders here. */
     fun attachSurface(surface: Surface) {
         currentSurface = surface
         player?.setVideoSurface(surface)
     }
 
-    /** Surface gone: stop video maar laat audio doorlopen. */
     fun detachSurface() {
         currentSurface = null
         player?.clearVideoSurface()
@@ -88,12 +94,7 @@ object PlayerHolder {
 
     fun hasSurface(): Boolean = currentSurface != null
 
-    /**
-     * Speel een hele lijst af als één ExoPlayer-timeline. Dit is wat de
-     * Volgende/Vorige-knoppen laat verschijnen op het autoscherm en in de
-     * notificatie. De items moeten al een afspeelbare URI hebben.
-     */
-    fun setQueue(items: List<MediaItem>, startIndex: Int) {
+    fun setQueue(items: List<MediaItem>, startIndex: Int = 0) {
         val p = player ?: return
         if (items.isEmpty()) return
         val safe = startIndex.coerceIn(0, items.size - 1)
@@ -103,10 +104,14 @@ object PlayerHolder {
         p.play()
     }
 
-    /**
-     * Speel één los item af (gebruikt voor de Video-modus, waar we een muxed of
-     * gemergde video+audio stream nodig hebben). Vervangt tijdelijk de wachtrij.
-     */
+    fun appendToQueue(items: List<MediaItem>) {
+        val p = player ?: return
+        if (items.isEmpty()) return
+        p.addMediaItems(items)
+    }
+
+    fun queueSize(): Int = player?.mediaItemCount ?: 0
+
     @androidx.media3.common.util.UnstableApi
     fun play(stream: StreamResult) {
         val p = player ?: return
@@ -122,42 +127,45 @@ object PlayerHolder {
             .setArtworkUri(stream.thumbnailUrl?.let { android.net.Uri.parse(it) })
             .build()
 
-        if (stream.isMuxed && stream.videoStreamUrl != null) {
-            p.setMediaItem(
-                MediaItem.Builder()
-                    .setUri(stream.videoStreamUrl)
-                    .setMediaId(stream.originalUrl ?: stream.videoStreamUrl)
-                    .setMediaMetadata(metadata)
-                    .build()
-            )
-        } else if (stream.videoStreamUrl != null && stream.audioStreamUrl != null) {
-            val videoSource = ProgressiveMediaSource.Factory(httpFactory)
-                .createMediaSource(
+        when {
+            stream.isMuxed && stream.videoStreamUrl != null -> {
+                p.setMediaItem(
                     MediaItem.Builder()
                         .setUri(stream.videoStreamUrl)
-                        .setMimeType(MimeTypes.VIDEO_MP4)
+                        .setMediaId(stream.originalUrl ?: stream.videoStreamUrl)
                         .setMediaMetadata(metadata)
                         .build()
                 )
-            val audioSource = ProgressiveMediaSource.Factory(httpFactory)
-                .createMediaSource(
+            }
+            stream.videoStreamUrl != null && stream.audioStreamUrl != null -> {
+                val videoSource = ProgressiveMediaSource.Factory(httpFactory)
+                    .createMediaSource(
+                        MediaItem.Builder()
+                            .setUri(stream.videoStreamUrl)
+                            .setMimeType(MimeTypes.VIDEO_MP4)
+                            .setMediaMetadata(metadata)
+                            .build()
+                    )
+                val audioSource = ProgressiveMediaSource.Factory(httpFactory)
+                    .createMediaSource(
+                        MediaItem.Builder()
+                            .setUri(stream.audioStreamUrl)
+                            .setMimeType(MimeTypes.AUDIO_MP4)
+                            .setMediaMetadata(metadata)
+                            .build()
+                    )
+                p.setMediaSource(MergingMediaSource(videoSource, audioSource))
+            }
+            stream.audioStreamUrl != null -> {
+                p.setMediaItem(
                     MediaItem.Builder()
                         .setUri(stream.audioStreamUrl)
-                        .setMimeType(MimeTypes.AUDIO_MP4)
+                        .setMediaId(stream.originalUrl ?: stream.audioStreamUrl)
                         .setMediaMetadata(metadata)
                         .build()
                 )
-            p.setMediaSource(MergingMediaSource(videoSource, audioSource))
-        } else if (stream.audioStreamUrl != null) {
-            p.setMediaItem(
-                MediaItem.Builder()
-                    .setUri(stream.audioStreamUrl)
-                    .setMediaId(stream.originalUrl ?: stream.audioStreamUrl)
-                    .setMediaMetadata(metadata)
-                    .build()
-            )
-        } else {
-            return
+            }
+            else -> return
         }
 
         p.playWhenReady = true
@@ -174,26 +182,20 @@ object PlayerHolder {
         player?.let { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
     }
 
-    // Behouden voor de car-schermen (oude API) zodat die blijven compileren.
     fun skipNext(onResult: (com.example.carvideo.extractor.SearchResultItem) -> Unit) {
         val current = PlaybackState.current.value ?: return
         val list = PlaybackState.playlist.value
         val currentIndex = list.indexOfFirst { it.url == current.originalUrl }
-        if (currentIndex != -1 && currentIndex < list.size - 1) {
-            onResult(list[currentIndex + 1])
-        }
+        if (currentIndex != -1 && currentIndex < list.size - 1) onResult(list[currentIndex + 1])
     }
 
     fun skipPrevious(onResult: (com.example.carvideo.extractor.SearchResultItem) -> Unit) {
         val current = PlaybackState.current.value ?: return
         val list = PlaybackState.playlist.value
         val currentIndex = list.indexOfFirst { it.url == current.originalUrl }
-        if (currentIndex > 0) {
-            onResult(list[currentIndex - 1])
-        }
+        if (currentIndex > 0) onResult(list[currentIndex - 1])
     }
 
-    /** Toggle play/pause. Returns the new playWhenReady state. */
     fun togglePlayPause(): Boolean {
         val p = player ?: return false
         p.playWhenReady = !p.playWhenReady
