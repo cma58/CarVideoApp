@@ -30,30 +30,56 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
         val playlist = PlaybackState.playlist.value
         val listBuilder = ItemList.Builder()
 
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle("Refresh lijst")
+                .addText("Opnieuw laden")
+                .setOnClickListener {
+                    startedLoading = false
+                    errorMessage = null
+                    PlaybackState.setPlaylist(emptyList())
+                    loadTrendingOnce(force = true)
+                    invalidate()
+                }
+                .build()
+        )
+
         when {
             playlist.isNotEmpty() -> {
                 errorMessage = null
-                playlist.take(12).forEach { item ->
+                playlist.take(11).forEach { item ->
                     listBuilder.addItem(
                         Row.Builder()
                             .setTitle(item.title.ifBlank { "Onbekende titel" })
                             .addText(item.uploader ?: "YouTube")
-                            .setOnClickListener {
-                                Log.d("CarVideoApp", "MainCarScreen: Item clicked: ${item.title}")
-                                playAndNavigate(item)
-                            }
+                            .setOnClickListener { playAndNavigate(item) }
                             .build()
                     )
                 }
             }
             loading -> {
-                listBuilder.setNoItemsMessage("Laden... Dit kan even duren.")
+                listBuilder.addItem(
+                    Row.Builder()
+                        .setTitle("Laden...")
+                        .addText("Dit kan even duren")
+                        .build()
+                )
             }
             errorMessage != null -> {
-                listBuilder.setNoItemsMessage(errorMessage ?: "Kon niet laden")
+                listBuilder.addItem(
+                    Row.Builder()
+                        .setTitle("Kon niet laden")
+                        .addText(errorMessage ?: "Onbekende fout")
+                        .build()
+                )
             }
             else -> {
-                listBuilder.setNoItemsMessage("Geen lijst geladen. Druk op Refresh of zoek via de knop rechtsboven.")
+                listBuilder.addItem(
+                    Row.Builder()
+                        .setTitle("Geen lijst geladen")
+                        .addText("Gebruik Refresh of Zoek")
+                        .build()
+                )
                 loadTrendingOnce()
             }
         }
@@ -63,18 +89,6 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
                 Action.Builder()
                     .setTitle("Zoek")
                     .setOnClickListener { screenManager.push(SearchScreen(carContext)) }
-                    .build()
-            )
-            .addAction(
-                Action.Builder()
-                    .setTitle("Refresh")
-                    .setOnClickListener {
-                        startedLoading = false
-                        errorMessage = null
-                        PlaybackState.setPlaylist(emptyList())
-                        loadTrendingOnce(force = true)
-                        invalidate()
-                    }
                     .build()
             )
             .build()
@@ -108,7 +122,7 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
                 }
             } catch (e: Exception) {
                 Log.e("CarVideoApp", "MainCarScreen: Error loading trending", e)
-                errorMessage = "Laden mislukt: ${e.message ?: "onbekende fout"}. Probeer Zoek of Refresh."
+                errorMessage = "Laden mislukt: ${e.message ?: "onbekende fout"}."
             } finally {
                 loading = false
                 invalidate()
@@ -119,20 +133,18 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
     private fun playAndNavigate(item: SearchResultItem) {
         lifecycleScope.launch {
             try {
-                Log.d("CarVideoApp", "MainCarScreen: Resolving URL: ${item.url}")
                 val stream = withTimeoutOrNull(15_000L) {
                     YouTubeExtractorService.resolveUrl(item.url)
                 }
 
                 if (stream == null) {
-                    errorMessage = "Stream laden duurde te lang. Probeer opnieuw of kies een ander item."
+                    errorMessage = "Stream laden duurde te lang."
                     invalidate()
                     return@launch
                 }
 
                 PlayerHolder.play(stream)
-                Log.d("CarVideoApp", "MainCarScreen: Play successful, pushing VideoScreen")
-                screenManager.push(VideoScreen(carContext))
+                invalidate()
             } catch (e: Exception) {
                 Log.e("CarVideoApp", "MainCarScreen: Error playing", e)
                 errorMessage = "Afspelen mislukt: ${e.message ?: "onbekende fout"}"
