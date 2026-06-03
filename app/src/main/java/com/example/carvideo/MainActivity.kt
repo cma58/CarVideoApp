@@ -140,6 +140,9 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
                         Text("Trending", modifier = Modifier.padding(12.dp))
                     }
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
+                        Text("Recent", modifier = Modifier.padding(12.dp))
+                    }
+                    Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }) {
                         Text("Search", modifier = Modifier.padding(12.dp))
                     }
                 }
@@ -180,7 +183,8 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
             when (selectedTab) {
                 0 -> ResultsList(state.forYou) { vm.play(it, state.forYou) }
                 1 -> ResultsList(state.trending) { vm.play(it, state.trending) }
-                2 -> SearchContent(query, { query = it }, { vm.search(query) }, state, vm)
+                2 -> ResultsList(state.history) { vm.play(it, state.history) }
+                3 -> SearchContent(query, { query = it }, { vm.search(query) }, state, vm)
             }
         }
     }
