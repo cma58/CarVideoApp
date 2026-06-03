@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val privateVersionCode = (findProperty("privateVersionCode") as String?)?.toIntOrNull() ?: 3
+val privateVersionName = (findProperty("privateVersionName") as String?) ?: "1.2-private"
+
 android {
     namespace = "com.example.carvideo"
     compileSdk = 37
@@ -12,8 +15,8 @@ android {
         applicationId = "com.example.carvideo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.2-private"
+        versionCode = privateVersionCode
+        versionName = privateVersionName
     }
 
     signingConfigs {
@@ -56,6 +59,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
