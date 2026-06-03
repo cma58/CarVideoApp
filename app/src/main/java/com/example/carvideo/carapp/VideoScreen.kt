@@ -6,7 +6,7 @@ import androidx.car.app.Screen
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.*
-import androidx.car.app.navigation.model.NavigationTemplate
+import androidx.car.app.navigation.model.PlaceListNavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -19,8 +19,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Integrated Player Screen for Android Auto.
- * Uses NavigationTemplate to render video on the full background surface
- * and provides clear, accessible controls.
+ * Shows the video on the full background surface and provides a sidebar
+ * with the current title and upcoming playlist items.
  */
 @UnstableApi
 class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleObserver {
@@ -55,8 +55,9 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
     override fun onGetTemplate(): Template {
         val playing = PlayerHolder.isPlaying()
         val current = PlaybackState.current.value
+        val playlist = PlaybackState.playlist.value
 
-        // Big, easy-to-hit controls
+        // Primary transport controls in the ActionStrip (Floating)
         val playPause = Action.Builder()
             .setIcon(icon(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play))
             .setOnClickListener {
@@ -91,23 +92,45 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
             }
             .build()
 
-        // Create an ActionStrip for secondary actions if needed, 
-        // but put primary controls in the MapActionStrip for visibility.
         val actionStrip = ActionStrip.Builder()
-            .addAction(Action.BACK)
-            .build()
-
-        // MapActionStrip is often rendered more prominently over the surface
-        val mapActionStrip = ActionStrip.Builder()
             .addAction(prev)
             .addAction(playPause)
             .addAction(next)
             .build()
 
-        return NavigationTemplate.Builder()
-            .setMapActionStrip(mapActionStrip)
+        // Sidebar list for "Next Up"
+        val listBuilder = ItemList.Builder()
+        val currentIndex = playlist.indexOfFirst { it.url == current?.originalUrl }
+        val upcoming = if (currentIndex != -1) playlist.drop(currentIndex + 1) else playlist
+        
+        if (upcoming.isEmpty()) {
+            listBuilder.setNoItemsMessage("Geen andere video's")
+        } else {
+            upcoming.take(5).forEach { item ->
+                listBuilder.addItem(
+                    Row.Builder()
+                        .setTitle(item.title)
+                        .addText(item.uploader ?: "YouTube")
+                        .setOnClickListener {
+                            lifecycleScope.launch {
+                                val stream = YouTubeExtractorService.resolveUrl(item.url)
+                                PlayerHolder.play(stream)
+                                invalidate()
+                            }
+                        }
+                        .build()
+                )
+            }
+        }
+
+        // PlaceListNavigationTemplate allows background surface (video) + UI overlay
+        @Suppress("DEPRECATION")
+        val builder = PlaceListNavigationTemplate.Builder()
+            .setTitle(current?.title ?: "Car Video")
+            .setHeaderAction(Action.BACK)
             .setActionStrip(actionStrip)
-            .setBackgroundColor(CarColor.PRIMARY)
-            .build()
+            .setItemList(listBuilder.build())
+
+        return builder.build()
     }
 }
