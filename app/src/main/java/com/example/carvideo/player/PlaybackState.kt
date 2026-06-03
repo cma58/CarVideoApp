@@ -16,11 +16,18 @@ object PlaybackState {
     private val _playlist = MutableStateFlow<List<SearchResultItem>>(emptyList())
     val playlist: StateFlow<List<SearchResultItem>> = _playlist
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     fun setCurrent(stream: StreamResult?) {
         _current.value = stream
     }
 
     fun setPlaylist(list: List<SearchResultItem>) {
         _playlist.value = list
+    }
+
+    fun setError(message: String?) {
+        _error.value = message
     }
 }
