@@ -10,12 +10,12 @@
 
     <application
         android:name=".CarVideoApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@android:drawable/ic_media_play"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="false">
 
-        <!-- Tells the host this app supports Android Auto -->
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
@@ -29,7 +29,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Android Auto entry point -->
+        <!-- Private Android Auto template experiment. Driving mode should be audio-only. -->
         <service
             android:name=".carapp.VideoCarAppService"
             android:exported="true">
@@ -43,7 +43,6 @@
             android:name="androidx.car.app.minCarApiLevel"
             android:value="1" />
 
-        <!-- Background media playback service -->
         <service
             android:name=".player.PlaybackService"
             android:exported="true"
