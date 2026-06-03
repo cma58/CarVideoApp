@@ -2,6 +2,7 @@ package com.example.carvideo.ui
 
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -73,11 +75,17 @@ fun NowPlayingBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .height(64.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .height(72.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .graphicsLayer {
+                // Glass effect (subtle shadow and transparency)
+                shadowElevation = 8f
+                shape = RoundedCornerShape(20.dp)
+                clip = true
+            }
             .clickable(onClick = { showFullPlayer = true }),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f),
-        tonalElevation = 8.dp
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+        tonalElevation = 12.dp
     ) {
         Row(
             modifier = Modifier
@@ -90,8 +98,8 @@ fun NowPlayingBar(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(12.dp))
             )
             
             Spacer(Modifier.width(12.dp))
@@ -99,14 +107,14 @@ fun NowPlayingBar(
             Column(Modifier.weight(1f)) {
                 Text(
                     text = stream.title,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = stream.uploader ?: "YouTube",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -127,7 +135,8 @@ fun NowPlayingBar(
             }) {
                 Icon(
                     if (playingState) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (playingState) "Pause" else "Play"
+                    contentDescription = if (playingState) "Pause" else "Play",
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
@@ -164,7 +173,7 @@ fun FullPlayerSheet(
             val loader = ImageLoader(context)
             val request = ImageRequest.Builder(context)
                 .data(stream.thumbnailUrl)
-                .allowHardware(false) // Required for Palette
+                .allowHardware(false)
                 .build()
             
             val result = loader.execute(request)
@@ -191,7 +200,7 @@ fun FullPlayerSheet(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            animatedBackground.copy(alpha = 0.4f),
+                            animatedBackground.copy(alpha = 0.5f),
                             MaterialTheme.colorScheme.surface
                         )
                     )
@@ -203,12 +212,16 @@ fun FullPlayerSheet(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Video Surface Area
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(24.dp))
                         .background(Color.Black)
+                        .graphicsLayer {
+                            shadowElevation = 16f
+                        }
                 ) {
                     if (videoMode) {
                         AndroidView(
@@ -241,30 +254,30 @@ fun FullPlayerSheet(
                             .align(Alignment.TopEnd)
                             .padding(16.dp),
                         colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
                         )
                     )
                 }
                 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(32.dp))
                 
                 Text(
                     text = stream.title,
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 
                 Text(
                     text = stream.uploader ?: "YouTube",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(40.dp))
 
-                // Progress Slider
+                // Modern Slider
                 Column(Modifier.fillMaxWidth()) {
                     Slider(
                         value = if (duration > 0) currentPos.toFloat() / duration else 0f,
@@ -275,12 +288,12 @@ fun FullPlayerSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(formatTime(currentPos), style = MaterialTheme.typography.labelSmall)
-                        Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
+                        Text(formatTime(currentPos), style = MaterialTheme.typography.labelMedium)
+                        Text(formatTime(duration), style = MaterialTheme.typography.labelMedium)
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(32.dp))
                 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -291,40 +304,45 @@ fun FullPlayerSheet(
                         Icon(
                             if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             "Like",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(36.dp),
                             tint = if (isLiked) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
                     }
 
                     IconButton(onClick = onPreviousClick) {
-                        Icon(Icons.Default.SkipPrevious, "Previous", modifier = Modifier.size(40.dp))
+                        Icon(Icons.Default.SkipPrevious, "Previous", modifier = Modifier.size(48.dp))
                     }
                     
                     FilledIconButton(
                         onClick = { PlayerHolder.togglePlayPause() },
-                        modifier = Modifier.size(72.dp)
+                        modifier = Modifier.size(80.dp)
                     ) {
                         Icon(
                             if (PlayerHolder.isPlaying()) Icons.Default.Pause else Icons.Default.PlayArrow,
                             null,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(48.dp)
                         )
                     }
                     
                     IconButton(onClick = onNextClick) {
-                        Icon(Icons.Default.SkipNext, "Skip", modifier = Modifier.size(40.dp))
+                        Icon(Icons.Default.SkipNext, "Skip", modifier = Modifier.size(48.dp))
                     }
                 }
                 
                 if (nextUpTitle != null) {
                     Spacer(Modifier.height(48.dp))
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = 0.9f },
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("NEXT UP", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            Text(nextUpTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Column(Modifier.padding(20.dp)) {
+                            Text("VOLGENDE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text(nextUpTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

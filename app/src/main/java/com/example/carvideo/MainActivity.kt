@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,7 +57,19 @@ class MainActivity : ComponentActivity() {
             }
 
             CarVideoTheme(themeMode = state.themeMode) {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                // Main Modern Background
+                val backgroundColor = MaterialTheme.colorScheme.background
+                val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(backgroundColor, surfaceColor.copy(alpha = 0.5f))
+                            )
+                        )
+                ) {
                     HomeScreen(vm)
                 }
             }
@@ -80,22 +95,33 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
     }
 
     Scaffold(
+        containerColor = Color.Transparent, // Let the Box background show through
         topBar = {
-            Column {
+            Column(modifier = Modifier.background(Color.Transparent)) {
                 CenterAlignedTopAppBar(
                     title = { 
                         Text(
                             "Car Video",
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         ) 
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    ),
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, null)
+                            Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 )
-                SecondaryTabRow(selectedTabIndex = selectedTab) {
+                SecondaryTabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = Color.Transparent,
+                    divider = {}
+                ) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
                         Text("For You", modifier = Modifier.padding(12.dp))
                     }
@@ -193,7 +219,7 @@ private fun SearchContent(
 @Composable
 private fun ResultsList(items: List<SearchResultItem>, onItemClick: (SearchResultItem) -> Unit) {
     LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(16.dp),
         modifier = Modifier.fillMaxSize()
     ) {
@@ -214,10 +240,18 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onSearch: 
             leadingIcon = { Icon(Icons.Default.Search, null) },
             singleLine = true,
             shape = RoundedCornerShape(28.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                focusedBorderColor = MaterialTheme.colorScheme.primary
+            ),
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(8.dp))
-        FilledIconButton(onClick = onSearch, modifier = Modifier.size(56.dp)) {
+        FilledIconButton(
+            onClick = onSearch, 
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(20.dp)
+        ) {
             Icon(Icons.Default.Search, "Zoek")
         }
     }
@@ -228,13 +262,14 @@ private fun ResultCard(item: SearchResultItem, onClick: () -> Unit) {
     ElevatedCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-        )
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            Modifier.padding(8.dp),
+            Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
@@ -243,13 +278,13 @@ private fun ResultCard(item: SearchResultItem, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(width = 120.dp, height = 68.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(16.dp))
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     item.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -280,32 +315,33 @@ fun SettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Settings") },
+        title = { Text("Instellingen", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("Theme Mode", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Thema Modus", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = currentTheme == 0,
                         onClick = { onThemeChange(0) },
-                        label = { Text("System") }
+                        label = { Text("Systeem") }
                     )
                     FilterChip(
                         selected = currentTheme == 1,
                         onClick = { onThemeChange(1) },
-                        label = { Text("Light") }
+                        label = { Text("Licht") }
                     )
                     FilterChip(
                         selected = currentTheme == 2,
                         onClick = { onThemeChange(2) },
-                        label = { Text("Dark") }
+                        label = { Text("Donker") }
                     )
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Sluiten") }
-        }
+        },
+        shape = RoundedCornerShape(28.dp)
     )
 }
