@@ -13,7 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -27,6 +29,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.example.carvideo.extractor.SearchResultItem
+import com.example.carvideo.logging.CrashLogger
 import com.example.carvideo.player.PlaybackService
 import com.example.carvideo.update.AppUpdater
 import com.example.carvideo.update.UpdateInfo
@@ -44,6 +48,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLogger.logEvent(this, "MainActivity onCreate")
         enableEdgeToEdge()
         startService(Intent(this, PlaybackService::class.java))
         setContent {
@@ -96,12 +101,32 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
     var query by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    var showLogs by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
+    var copiedLogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (showLogs) {
+        CrashLogDialog(
+            logText = CrashLogger.readFullLog(context),
+            onCopy = {
+                copiedLogMessage = if (CrashLogger.copyLogsToClipboard(context)) {
+                    "Log gekopieerd. Plak hem hier in ChatGPT."
+                } else {
+                    "Kopiëren mislukt."
+                }
+            },
+            onClear = {
+                CrashLogger.clearLogs(context)
+                copiedLogMessage = "Logs gewist."
+            },
+            onDismiss = { showLogs = false }
+        )
+    }
 
     if (showSettings) {
         SettingsDialog(
@@ -109,10 +134,12 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
             checkingUpdate = checkingUpdate,
             updateInfo = updateInfo,
             updateMessage = updateMessage,
+            logMessage = copiedLogMessage,
             onThemeChange = { vm.setThemeMode(it) },
             onCheckUpdate = {
                 checkingUpdate = true
                 updateMessage = null
+                CrashLogger.logEvent(context, "Update check gestart")
                 scope.launch {
                     try {
                         val info = AppUpdater.checkForUpdate()
@@ -122,8 +149,10 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
                         } else {
                             "Je hebt al de nieuwste versie."
                         }
+                        CrashLogger.logEvent(context, "Update check OK: ${info.tagName}, update=${info.isUpdateAvailable}")
                     } catch (e: Exception) {
                         updateMessage = "Update check mislukt: ${e.message}"
+                        CrashLogger.logEvent(context, "Update check fout: ${e.message}")
                     } finally {
                         checkingUpdate = false
                     }
@@ -135,16 +164,32 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
                     AppUpdater.downloadWithDownloadManager(context, info)
                     Toast.makeText(context, "Update wordt gedownload. Open daarna Installeren.", Toast.LENGTH_LONG).show()
                     updateMessage = "Download gestart. Wacht tot Android meldt dat de download klaar is en tik daarna op Installeren."
+                    CrashLogger.logEvent(context, "Update download gestart: ${info.assetName}")
                 } catch (e: Exception) {
                     updateMessage = "Download mislukt: ${e.message}"
+                    CrashLogger.logEvent(context, "Update download fout: ${e.message}")
                 }
             },
             onInstallUpdate = {
                 try {
+                    CrashLogger.logEvent(context, "Update installatie gestart")
                     AppUpdater.installDownloadedApk(context)
                 } catch (e: Exception) {
                     updateMessage = "Installatie kon niet starten: ${e.message}"
+                    CrashLogger.logEvent(context, "Update installatie fout: ${e.message}")
                 }
+            },
+            onShowLogs = { showLogs = true },
+            onCopyLogs = {
+                copiedLogMessage = if (CrashLogger.copyLogsToClipboard(context)) {
+                    "Log gekopieerd. Plak hem hier in ChatGPT."
+                } else {
+                    "Kopiëren mislukt."
+                }
+            },
+            onClearLogs = {
+                CrashLogger.clearLogs(context)
+                copiedLogMessage = "Logs gewist."
             },
             onDismiss = { showSettings = false }
         )
@@ -373,35 +418,27 @@ fun SettingsDialog(
     checkingUpdate: Boolean,
     updateInfo: UpdateInfo?,
     updateMessage: String?,
+    logMessage: String?,
     onThemeChange: (Int) -> Unit,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onShowLogs: () -> Unit,
+    onCopyLogs: () -> Unit,
+    onClearLogs: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Instellingen", fontWeight = FontWeight.Bold) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("Thema Modus", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = currentTheme == 0,
-                        onClick = { onThemeChange(0) },
-                        label = { Text("Systeem") }
-                    )
-                    FilterChip(
-                        selected = currentTheme == 1,
-                        onClick = { onThemeChange(1) },
-                        label = { Text("Licht") }
-                    )
-                    FilterChip(
-                        selected = currentTheme == 2,
-                        onClick = { onThemeChange(2) },
-                        label = { Text("Donker") }
-                    )
+                    FilterChip(selected = currentTheme == 0, onClick = { onThemeChange(0) }, label = { Text("Systeem") })
+                    FilterChip(selected = currentTheme == 1, onClick = { onThemeChange(1) }, label = { Text("Licht") })
+                    FilterChip(selected = currentTheme == 2, onClick = { onThemeChange(2) }, label = { Text("Donker") })
                 }
 
                 Spacer(Modifier.height(24.dp))
@@ -430,24 +467,67 @@ fun SettingsDialog(
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onCheckUpdate, enabled = !checkingUpdate) {
-                        if (checkingUpdate) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("Check update")
-                        }
+                        if (checkingUpdate) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp) else Text("Check update")
                     }
                     Button(onClick = onDownloadUpdate, enabled = updateInfo?.isUpdateAvailable == true) {
                         Text("Download")
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onInstallUpdate) {
-                    Text("Installeren na download")
+                OutlinedButton(onClick = onInstallUpdate) { Text("Installeren na download") }
+
+                Spacer(Modifier.height(24.dp))
+                Divider()
+                Spacer(Modifier.height(16.dp))
+
+                Text("Crash log", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Als de app crasht, open hier de log en kopieer die naar ChatGPT.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (logMessage != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(logMessage, style = MaterialTheme.typography.bodySmall)
                 }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onShowLogs) { Text("Bekijk log") }
+                    Button(onClick = onCopyLogs) { Text("Kopieer log") }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onClearLogs) { Text("Wis logs") }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Sluiten") }
+        },
+        shape = RoundedCornerShape(28.dp)
+    )
+}
+
+@Composable
+fun CrashLogDialog(
+    logText: String,
+    onCopy: () -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Crash log") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(logText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onCopy) { Text("Kopieer") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onClear) { Text("Wis") }
+                TextButton(onClick = onDismiss) { Text("Sluiten") }
+            }
         },
         shape = RoundedCornerShape(28.dp)
     )
