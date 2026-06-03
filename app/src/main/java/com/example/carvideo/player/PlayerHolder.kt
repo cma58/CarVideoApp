@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.example.carvideo.extractor.StreamResult
+import com.example.carvideo.logging.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,6 +56,14 @@ object PlayerHolder {
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackState.setError("Playback-fout: ${error.errorCodeName}")
+                        try {
+                            CrashLogger.logEvent(
+                                exo.applicationLooper.thread.contextClassLoader?.toString()?.let { return@let null } ?: return,
+                                ""
+                            )
+                        } catch (_: Throwable) {
+                            // Ignore. Main crash logger will catch real crashes.
+                        }
                         if (exo.hasNextMediaItem()) {
                             exo.seekToNextMediaItem()
                             exo.prepare()
@@ -98,16 +107,26 @@ object PlayerHolder {
         val p = player ?: return
         if (items.isEmpty()) return
         val safe = startIndex.coerceIn(0, items.size - 1)
-        p.setMediaItems(items, safe, 0L)
-        p.playWhenReady = true
-        p.prepare()
-        p.play()
+        try {
+            p.setMediaItems(items, safe, 0L)
+            p.playWhenReady = true
+            p.prepare()
+            p.play()
+        } catch (t: Throwable) {
+            PlaybackState.setError("Queue laden mislukt: ${t.message}")
+        }
     }
 
     fun appendToQueue(items: List<MediaItem>) {
         val p = player ?: return
         if (items.isEmpty()) return
-        p.addMediaItems(items)
+        items.forEach { item ->
+            try {
+                p.addMediaItem(item)
+            } catch (t: Throwable) {
+                PlaybackState.setError("Item overslaan: ${t.message}")
+            }
+        }
     }
 
     fun queueSize(): Int = player?.mediaItemCount ?: 0
@@ -127,51 +146,55 @@ object PlayerHolder {
             .setArtworkUri(stream.thumbnailUrl?.let { android.net.Uri.parse(it) })
             .build()
 
-        when {
-            stream.isMuxed && stream.videoStreamUrl != null -> {
-                p.setMediaItem(
-                    MediaItem.Builder()
-                        .setUri(stream.videoStreamUrl)
-                        .setMediaId(stream.originalUrl ?: stream.videoStreamUrl)
-                        .setMediaMetadata(metadata)
-                        .build()
-                )
-            }
-            stream.videoStreamUrl != null && stream.audioStreamUrl != null -> {
-                val videoSource = ProgressiveMediaSource.Factory(httpFactory)
-                    .createMediaSource(
+        try {
+            when {
+                stream.isMuxed && stream.videoStreamUrl != null -> {
+                    p.setMediaItem(
                         MediaItem.Builder()
                             .setUri(stream.videoStreamUrl)
-                            .setMimeType(MimeTypes.VIDEO_MP4)
+                            .setMediaId(stream.originalUrl ?: stream.videoStreamUrl)
                             .setMediaMetadata(metadata)
                             .build()
                     )
-                val audioSource = ProgressiveMediaSource.Factory(httpFactory)
-                    .createMediaSource(
+                }
+                stream.videoStreamUrl != null && stream.audioStreamUrl != null -> {
+                    val videoSource = ProgressiveMediaSource.Factory(httpFactory)
+                        .createMediaSource(
+                            MediaItem.Builder()
+                                .setUri(stream.videoStreamUrl)
+                                .setMimeType(MimeTypes.VIDEO_MP4)
+                                .setMediaMetadata(metadata)
+                                .build()
+                        )
+                    val audioSource = ProgressiveMediaSource.Factory(httpFactory)
+                        .createMediaSource(
+                            MediaItem.Builder()
+                                .setUri(stream.audioStreamUrl)
+                                .setMimeType(MimeTypes.AUDIO_MP4)
+                                .setMediaMetadata(metadata)
+                                .build()
+                        )
+                    p.setMediaSource(MergingMediaSource(videoSource, audioSource))
+                }
+                stream.audioStreamUrl != null -> {
+                    p.setMediaItem(
                         MediaItem.Builder()
                             .setUri(stream.audioStreamUrl)
-                            .setMimeType(MimeTypes.AUDIO_MP4)
+                            .setMediaId(stream.originalUrl ?: stream.audioStreamUrl)
                             .setMediaMetadata(metadata)
                             .build()
                     )
-                p.setMediaSource(MergingMediaSource(videoSource, audioSource))
+                }
+                else -> return
             }
-            stream.audioStreamUrl != null -> {
-                p.setMediaItem(
-                    MediaItem.Builder()
-                        .setUri(stream.audioStreamUrl)
-                        .setMediaId(stream.originalUrl ?: stream.audioStreamUrl)
-                        .setMediaMetadata(metadata)
-                        .build()
-                )
-            }
-            else -> return
-        }
 
-        p.playWhenReady = true
-        p.prepare()
-        p.play()
-        PlaybackState.setCurrent(stream)
+            p.playWhenReady = true
+            p.prepare()
+            p.play()
+            PlaybackState.setCurrent(stream)
+        } catch (t: Throwable) {
+            PlaybackState.setError("Afspelen mislukt: ${t.message}")
+        }
     }
 
     fun seekToNext() {
