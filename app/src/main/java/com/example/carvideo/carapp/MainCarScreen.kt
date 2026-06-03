@@ -28,7 +28,45 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
         Log.d("CarVideoApp", "MainCarScreen: onGetTemplate")
         val playlist = PlaybackState.playlist.value
+        val current = PlaybackState.current.value
         val listBuilder = ItemList.Builder()
+
+        if (current != null) {
+            listBuilder.addItem(
+                Row.Builder()
+                    .setTitle("Nu speelt")
+                    .addText(current.title.ifBlank { "Onbekende titel" })
+                    .addText(current.uploader ?: "")
+                    .build()
+            )
+        }
+
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle(if (PlayerHolder.isPlaying()) "Pauze" else "Afspelen")
+                .addText("Play / pause")
+                .setOnClickListener {
+                    PlayerHolder.togglePlayPause()
+                    invalidate()
+                }
+                .build()
+        )
+
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle("Volgende")
+                .addText("Speel volgende item")
+                .setOnClickListener { playNext() }
+                .build()
+        )
+
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle("Vorige")
+                .addText("Speel vorige item")
+                .setOnClickListener { playPrevious() }
+                .build()
+        )
 
         listBuilder.addItem(
             Row.Builder()
@@ -47,7 +85,7 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
         when {
             playlist.isNotEmpty() -> {
                 errorMessage = null
-                playlist.take(11).forEach { item ->
+                playlist.take(8).forEach { item ->
                     listBuilder.addItem(
                         Row.Builder()
                             .setTitle(item.title.ifBlank { "Onbekende titel" })
@@ -128,6 +166,16 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
                 invalidate()
             }
         }
+    }
+
+    private fun playNext() {
+        PlayerHolder.skipNext { item -> playAndNavigate(item) }
+        invalidate()
+    }
+
+    private fun playPrevious() {
+        PlayerHolder.skipPrevious { item -> playAndNavigate(item) }
+        invalidate()
     }
 
     private fun playAndNavigate(item: SearchResultItem) {
