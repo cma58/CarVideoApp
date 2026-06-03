@@ -1,14 +1,14 @@
 package com.example.carvideo.ui
 
-import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.palette.graphics.Palette
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -78,7 +77,6 @@ fun NowPlayingBar(
             .height(72.dp)
             .clip(RoundedCornerShape(20.dp))
             .graphicsLayer {
-                // Glass effect (subtle shadow and transparency)
                 shadowElevation = 8f
                 shape = RoundedCornerShape(20.dp)
                 clip = true
@@ -101,9 +99,9 @@ fun NowPlayingBar(
                     .size(56.dp)
                     .clip(RoundedCornerShape(12.dp))
             )
-            
+
             Spacer(Modifier.width(12.dp))
-            
+
             Column(Modifier.weight(1f)) {
                 Text(
                     text = stream.title,
@@ -160,12 +158,12 @@ fun FullPlayerSheet(
     val context = LocalContext.current
     val currentPos by PlayerHolder.currentPosition.collectAsState()
     val duration by PlayerHolder.duration.collectAsState()
-    
-    // Dynamic Color Extraction
+
     var dominantColor by remember { mutableStateOf(Color.DarkGray) }
     val animatedBackground by animateColorAsState(
         targetValue = dominantColor,
-        animationSpec = tween(durationMillis = 1000)
+        animationSpec = tween(durationMillis = 1000),
+        label = "bg"
     )
 
     LaunchedEffect(stream.thumbnailUrl) {
@@ -175,7 +173,7 @@ fun FullPlayerSheet(
                 .data(stream.thumbnailUrl)
                 .allowHardware(false)
                 .build()
-            
+
             val result = loader.execute(request)
             if (result is SuccessResult) {
                 val bitmap = (result.drawable as BitmapDrawable).bitmap
@@ -206,34 +204,34 @@ fun FullPlayerSheet(
                     )
                 )
         ) {
+            // SCROLLBAAR + video met begrensde hoogte: hierdoor blijven de
+            // Vorige/Play/Volgende-knoppen altijd bereikbaar, ook op een
+            // breed/laag autoscherm in landscape.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Video Surface Area
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(max = 240.dp)
                         .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(24.dp))
                         .background(Color.Black)
-                        .graphicsLayer {
-                            shadowElevation = 16f
-                        }
+                        .graphicsLayer { shadowElevation = 16f }
                 ) {
                     if (videoMode) {
-                        AndroidView(
+                        androidx.compose.ui.viewinterop.AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
                                     player = PlayerHolder.get()
                                     useController = false
                                 }
                             },
-                            onRelease = { playerView ->
-                                playerView.player = null
-                            },
+                            onRelease = { playerView -> playerView.player = null },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -244,8 +242,7 @@ fun FullPlayerSheet(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                    
-                    // Mode Toggle Overlay
+
                     FilterChip(
                         selected = videoMode,
                         onClick = onToggleVideo,
@@ -258,9 +255,9 @@ fun FullPlayerSheet(
                         )
                     )
                 }
-                
-                Spacer(Modifier.height(32.dp))
-                
+
+                Spacer(Modifier.height(24.dp))
+
                 Text(
                     text = stream.title,
                     style = MaterialTheme.typography.headlineSmall,
@@ -268,16 +265,15 @@ fun FullPlayerSheet(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Text(
                     text = stream.uploader ?: "YouTube",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                
-                Spacer(Modifier.height(40.dp))
 
-                // Modern Slider
+                Spacer(Modifier.height(24.dp))
+
                 Column(Modifier.fillMaxWidth()) {
                     Slider(
                         value = if (duration > 0) currentPos.toFloat() / duration else 0f,
@@ -293,8 +289,8 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(Modifier.height(32.dp))
-                
+                Spacer(Modifier.height(16.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -312,7 +308,7 @@ fun FullPlayerSheet(
                     IconButton(onClick = onPreviousClick) {
                         Icon(Icons.Default.SkipPrevious, "Previous", modifier = Modifier.size(48.dp))
                     }
-                    
+
                     FilledIconButton(
                         onClick = { PlayerHolder.togglePlayPause() },
                         modifier = Modifier.size(80.dp)
@@ -323,14 +319,14 @@ fun FullPlayerSheet(
                             modifier = Modifier.size(48.dp)
                         )
                     }
-                    
+
                     IconButton(onClick = onNextClick) {
                         Icon(Icons.Default.SkipNext, "Skip", modifier = Modifier.size(48.dp))
                     }
                 }
-                
+
                 if (nextUpTitle != null) {
-                    Spacer(Modifier.height(48.dp))
+                    Spacer(Modifier.height(24.dp))
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -341,11 +337,23 @@ fun FullPlayerSheet(
                         )
                     ) {
                         Column(Modifier.padding(20.dp)) {
-                            Text("VOLGENDE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            Text(nextUpTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "VOLGENDE",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                nextUpTitle,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
+
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
