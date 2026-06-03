@@ -1,12 +1,13 @@
 package com.example.carvideo.carapp
 
+import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.*
-import androidx.car.app.navigation.model.PlaceListNavigationTemplate
+import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -17,20 +18,20 @@ import com.example.carvideo.player.PlaybackState
 import com.example.carvideo.player.PlayerHolder
 import kotlinx.coroutines.launch
 
-/**
- * Integrated Player Screen for Android Auto.
- * Shows the video on the full background surface and provides a sidebar
- * with the current title and upcoming playlist items.
- */
 @UnstableApi
 class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleObserver {
 
     private val surfaceCallback = object : SurfaceCallback {
         override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-            surfaceContainer.surface?.let { PlayerHolder.attachSurface(it) }
+            Log.d("CarVideoApp", "VideoScreen: onSurfaceAvailable")
+            surfaceContainer.surface?.let { 
+                PlayerHolder.attachSurface(it) 
+                invalidate()
+            }
         }
 
         override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
+            Log.d("CarVideoApp", "VideoScreen: onSurfaceDestroyed")
             PlayerHolder.detachSurface()
         }
     }
@@ -40,11 +41,13 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
     }
 
     override fun onCreate(owner: LifecycleOwner) {
+        Log.d("CarVideoApp", "VideoScreen: onCreate")
         carContext.getCarService(AppManager::class.java)
             .setSurfaceCallback(surfaceCallback)
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
+        Log.d("CarVideoApp", "VideoScreen: onDestroy")
         PlayerHolder.detachSurface()
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(null)
     }
@@ -53,14 +56,15 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
         CarIcon.Builder(IconCompat.createWithResource(carContext, resId)).build()
 
     override fun onGetTemplate(): Template {
+        Log.d("CarVideoApp", "VideoScreen: onGetTemplate")
         val playing = PlayerHolder.isPlaying()
         val current = PlaybackState.current.value
-        val playlist = PlaybackState.playlist.value
 
-        // Primary transport controls in the ActionStrip (Floating)
+        // Standard Transport Controls
         val playPause = Action.Builder()
             .setIcon(icon(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play))
             .setOnClickListener {
+                Log.d("CarVideoApp", "VideoScreen: Play/Pause clicked")
                 PlayerHolder.togglePlayPause()
                 invalidate()
             }
@@ -69,6 +73,7 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
         val next = Action.Builder()
             .setIcon(icon(android.R.drawable.ic_media_next))
             .setOnClickListener {
+                Log.d("CarVideoApp", "VideoScreen: Next clicked")
                 PlayerHolder.skipNext { item ->
                     lifecycleScope.launch {
                         val stream = YouTubeExtractorService.resolveUrl(item.url)
@@ -82,6 +87,7 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
         val prev = Action.Builder()
             .setIcon(icon(android.R.drawable.ic_media_previous))
             .setOnClickListener {
+                Log.d("CarVideoApp", "VideoScreen: Prev clicked")
                 PlayerHolder.skipPrevious { item ->
                     lifecycleScope.launch {
                         val stream = YouTubeExtractorService.resolveUrl(item.url)
@@ -92,45 +98,17 @@ class VideoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycle
             }
             .build()
 
+        // Persistent ActionStrip for controls
         val actionStrip = ActionStrip.Builder()
             .addAction(prev)
             .addAction(playPause)
             .addAction(next)
             .build()
 
-        // Sidebar list for "Next Up"
-        val listBuilder = ItemList.Builder()
-        val currentIndex = playlist.indexOfFirst { it.url == current?.originalUrl }
-        val upcoming = if (currentIndex != -1) playlist.drop(currentIndex + 1) else playlist
-        
-        if (upcoming.isEmpty()) {
-            listBuilder.setNoItemsMessage("Geen andere video's")
-        } else {
-            upcoming.take(5).forEach { item ->
-                listBuilder.addItem(
-                    Row.Builder()
-                        .setTitle(item.title)
-                        .addText(item.uploader ?: "YouTube")
-                        .setOnClickListener {
-                            lifecycleScope.launch {
-                                val stream = YouTubeExtractorService.resolveUrl(item.url)
-                                PlayerHolder.play(stream)
-                                invalidate()
-                            }
-                        }
-                        .build()
-                )
-            }
-        }
-
-        // PlaceListNavigationTemplate allows background surface (video) + UI overlay
-        @Suppress("DEPRECATION")
-        val builder = PlaceListNavigationTemplate.Builder()
-            .setTitle(current?.title ?: "Car Video")
-            .setHeaderAction(Action.BACK)
+        // For VIDEO category apps, NavigationTemplate is used to claim the surface.
+        // It provides a full-screen background for our ExoPlayer.
+        return NavigationTemplate.Builder()
             .setActionStrip(actionStrip)
-            .setItemList(listBuilder.build())
-
-        return builder.build()
+            .build()
     }
 }

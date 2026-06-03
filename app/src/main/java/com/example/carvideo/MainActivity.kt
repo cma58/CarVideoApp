@@ -71,6 +71,17 @@ class MainActivity : ComponentActivity() {
                         )
                 ) {
                     HomeScreen(vm)
+                    
+                    // Android Auto Help Overlay (Temporary for debugging)
+                    val currentStream by com.example.carvideo.player.PlaybackState.current.collectAsState()
+                    if (currentStream != null) {
+                        Text(
+                            "AA Status: Service Active. Check 'Unknown Sources' in AA settings!",
+                            color = Color.Green.copy(alpha = 0.5f),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.align(Alignment.TopStart).padding(top = 120.dp, start = 16.dp)
+                        )
+                    }
                 }
             }
         }

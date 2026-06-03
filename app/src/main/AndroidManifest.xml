@@ -35,9 +35,13 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.VIDEO" />
+                <category android:name="androidx.car.app.category.POI" />
             </intent-filter>
         </service>
+
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
 
         <!-- Background media playback service -->
         <service

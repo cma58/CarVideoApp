@@ -1,22 +1,19 @@
 package com.example.carvideo.carapp
 
+import android.util.Log
 import androidx.car.app.CarAppService
 import androidx.car.app.Session
 import androidx.car.app.validation.HostValidator
 
-/**
- * CarAppService entry point for Android Auto (item 3).
- *
- * Registered in the manifest with category androidx.car.app.category.VIDEO.
- * Note: the VIDEO category is restricted — a published app must be approved by
- * Google to run on production head units. For personal/dev use it works under
- * Android Auto's developer mode (Desktop Head Unit / DHU).
- */
 class VideoCarAppService : CarAppService() {
 
+    override fun onCreate() {
+        super.onCreate()
+        Log.d("CarVideoApp", "VideoCarAppService: onCreate")
+    }
+
     override fun createHostValidator(): HostValidator {
-        // For development, allow all hosts. For production, use the
-        // ALLOW_ALL_HOSTS_VALIDATOR replacement with a proper allowlist.
+        Log.d("CarVideoApp", "VideoCarAppService: createHostValidator")
         return if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
         } else {
@@ -26,5 +23,13 @@ class VideoCarAppService : CarAppService() {
         }
     }
 
-    override fun onCreateSession(): Session = VideoSession()
+    override fun onCreateSession(): Session {
+        Log.d("CarVideoApp", "VideoCarAppService: onCreateSession")
+        return VideoSession()
+    }
+
+    override fun onDestroy() {
+        Log.d("CarVideoApp", "VideoCarAppService: onDestroy")
+        super.onDestroy()
+    }
 }
