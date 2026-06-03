@@ -10,7 +10,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.example.carvideo.extractor.StreamResult
-import com.example.carvideo.logging.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,14 +55,6 @@ object PlayerHolder {
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackState.setError("Playback-fout: ${error.errorCodeName}")
-                        try {
-                            CrashLogger.logEvent(
-                                exo.applicationLooper.thread.contextClassLoader?.toString()?.let { return@let null } ?: return,
-                                ""
-                            )
-                        } catch (_: Throwable) {
-                            // Ignore. Main crash logger will catch real crashes.
-                        }
                         if (exo.hasNextMediaItem()) {
                             exo.seekToNextMediaItem()
                             exo.prepare()
