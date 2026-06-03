@@ -21,7 +21,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 @UnstableApi
 class SearchScreen(carContext: CarContext) : Screen(carContext) {
-
     private var query: String = ""
     private var loading = false
     private var errorMessage: String? = null
@@ -33,10 +32,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
         }
 
         return SearchTemplate.Builder(object : SearchTemplate.SearchCallback {
-            override fun onSearchTextChanged(searchText: String) {
-                query = searchText
-            }
-
+            override fun onSearchTextChanged(searchText: String) { query = searchText }
             override fun onSearchSubmitted(searchText: String) {
                 query = searchText.trim()
                 performSearch(query)
@@ -50,7 +46,6 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
 
     private fun buildResultsTemplate(): Template {
         val listBuilder = ItemList.Builder()
-
         when {
             loading -> listBuilder.setNoItemsMessage("Zoeken...")
             errorMessage != null -> listBuilder.setNoItemsMessage(errorMessage ?: "Zoeken mislukt")
@@ -66,33 +61,17 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
             }
         }
 
-        val actionStrip = ActionStrip.Builder()
-            .addAction(
-                Action.Builder()
-                    .setTitle("Nieuwe zoek")
-                    .setOnClickListener {
-                        results = emptyList()
-                        errorMessage = null
-                        loading = false
-                        invalidate()
-                    }
-                    .build()
-            )
-            .build()
-
         return ListTemplate.Builder()
             .setTitle(if (query.isBlank()) "Zoeken" else "Resultaten: $query")
             .setHeaderAction(Action.BACK)
             .setSingleList(listBuilder.build())
-            .setActionStrip(actionStrip)
             .build()
     }
 
     private fun performSearch(searchQuery: String) {
         if (searchQuery.isBlank()) {
             errorMessage = "Typ eerst iets om te zoeken."
-            invalidate()
-            return
+            invalidate(); return
         }
 
         loading = true
@@ -106,14 +85,10 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                     YouTubeExtractorService.search(searchQuery, limit = 12, serviceId = 0)
                 }
                 results = found ?: emptyList()
-                errorMessage = if (found == null) {
-                    "Zoeken duurde te lang. Probeer opnieuw of zoek op je telefoon."
-                } else if (found.isEmpty()) {
-                    "Geen resultaten gevonden."
-                } else null
+                errorMessage = if (found == null) "Zoeken duurde te lang." else if (found.isEmpty()) "Geen resultaten gevonden." else null
             } catch (e: Exception) {
-                Log.e("CarVideoApp", "SearchScreen: Error searching", e)
-                errorMessage = "Zoeken mislukt: ${e.message ?: "onbekende fout"}"
+                Log.e("CarVideoApp", "SearchScreen", e)
+                errorMessage = "Zoeken mislukt"
             } finally {
                 loading = false
                 invalidate()
@@ -122,31 +97,17 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     private fun playAndNavigate(item: SearchResultItem) {
-        loading = true
-        errorMessage = null
-        invalidate()
-
         lifecycleScope.launch {
             try {
                 PlaybackState.setPlaylist(results.ifEmpty { listOf(item) })
                 val stream = withTimeoutOrNull(15_000L) {
                     YouTubeExtractorService.resolveUrl(item.url)
-                }
-
-                if (stream == null) {
-                    errorMessage = "Stream laden duurde te lang. Probeer opnieuw."
-                    loading = false
-                    invalidate()
-                    return@launch
-                }
+                } ?: return@launch
 
                 PlayerHolder.play(stream)
-                loading = false
-                screenManager.push(VideoScreen(carContext))
+                invalidate()
             } catch (e: Exception) {
-                Log.e("CarVideoApp", "SearchScreen: Error playing", e)
-                loading = false
-                errorMessage = "Afspelen mislukt: ${e.message ?: "onbekende fout"}"
+                errorMessage = "Afspelen mislukt"
                 invalidate()
             }
         }
