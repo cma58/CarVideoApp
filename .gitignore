@@ -1,10 +1,31 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle / Android
+.gradle/
+build/
+**/build/
 local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# APK/AAB outputs
+*.apk
+*.ap_
+*.aab
+*.aar
+
+# Signing keys - keep your private release key OUT of GitHub
+*.jks
+*.keystore
+!debug-fixed.keystore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
