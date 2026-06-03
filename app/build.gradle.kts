@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.carvideo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1-private"
+        versionCode = 3
+        versionName = "1.2-private"
     }
 
     signingConfigs {
@@ -23,10 +23,20 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("privateRelease") {
+            // Private/sideload build: stable signing key so updates install over the previous APK.
+            // For a public app, use GitHub Secrets or Play App Signing instead.
+            storeFile = file("../debug-fixed.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
         release {
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("privateRelease")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
