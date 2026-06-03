@@ -1,6 +1,7 @@
 package com.example.carvideo.extractor
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
@@ -11,21 +12,27 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Resolves a YouTube/SoundCloud URL or search term into directly playable stream URLs.
- * NewPipe v0.26.1, Localization.DEFAULT, en .content voor stream-URLs.
+ * Private-use resolver for YouTube/SoundCloud streams.
  *
- * SAMENGEVOEGD UIT YTAuto: een stream-URL-cache met TTL. YouTube-stream-URL's zijn
- * ~6 uur geldig; we cachen ze 5 uur zodat we niet bij elke play opnieuw hoeven te
- * resolven. Dit maakt het laden van een wachtrij veel sneller.
+ * The goal is stability for a personal Android Auto/head-unit app:
+ * - cache direct stream URLs for a short time;
+ * - prefer car-friendly qualities instead of always the heaviest stream;
+ * - retry once or twice when NewPipe/network calls fail;
+ * - provide an audio-only fallback whenever video resolving fails.
  */
 object YouTubeExtractorService {
 
     @Volatile
     private var initialized = false
 
-    // videoUrl -> Pair(streamUrl, expiryTimeMs). Thread-safe want we resolven parallel.
-    private val audioUrlCache = ConcurrentHashMap<String, Pair<String, Long>>()
-    private const val CACHE_TTL_MS = 5L * 60L * 60L * 1000L // 5 uur
+    private data class Cached<T>(val value: T, val expiryMs: Long)
+
+    private val audioUrlCache = ConcurrentHashMap<String, Cached<String>>()
+    private val streamCache = ConcurrentHashMap<String, Cached<StreamResult>>()
+
+    // YouTube direct URLs expire. Keep this shorter than the real expiry.
+    private const val CACHE_TTL_MS = 4L * 60L * 60L * 1000L
+    private const val MAX_VIDEO_HEIGHT = 720
 
     fun init() {
         if (initialized) return
@@ -40,85 +47,149 @@ object YouTubeExtractorService {
     private val youtube get() = ServiceList.YouTube
     private val soundcloud get() = ServiceList.SoundCloud
 
+    private suspend fun <T> retry(
+        attempts: Int = 2,
+        block: suspend () -> T
+    ): T {
+        var last: Throwable? = null
+        repeat(attempts) { index ->
+            try {
+                return block()
+            } catch (t: Throwable) {
+                last = t
+                if (index < attempts - 1) delay(350L * (index + 1))
+            }
+        }
+        throw last ?: IllegalStateException("Onbekende extractor-fout")
+    }
+
+    private fun cacheValid(expiryMs: Long): Boolean = System.currentTimeMillis() < expiryMs
+
+    private fun serviceForUrl(url: String) = ServiceList.all().firstOrNull { service ->
+        try {
+            service.getStreamExtractor(url) != null
+        } catch (_: Throwable) {
+            false
+        }
+    } ?: youtube
+
+    private fun parseHeight(resolution: String?): Int {
+        if (resolution.isNullOrBlank()) return 0
+        return Regex("(\\d+)").find(resolution)?.value?.toIntOrNull() ?: 0
+    }
+
+    private fun isMp4(mime: String?): Boolean = mime?.contains("mp4", ignoreCase = true) == true
+
     /**
-     * Beste AUDIO-stream-URL (een afspeelbare URI), met cache.
-     * Dit is het betrouwbare pad voor de wachtrij: een URI per item, werkt op de
-     * achtergrond en laat ExoPlayer een echte timeline opbouwen (next/prev).
+     * Best audio stream for queue playback. This should be fast and reliable.
      */
     suspend fun getAudioStreamUrl(videoUrl: String): String? {
-        // 1) Cache-hit?
-        audioUrlCache[videoUrl]?.let { (url, expiry) ->
-            if (System.currentTimeMillis() < expiry) return url
+        audioUrlCache[videoUrl]?.let { cached ->
+            if (cacheValid(cached.expiryMs)) return cached.value
         }
-        // 2) Anders resolven en cachen.
+
         return withContext(Dispatchers.IO) {
-            init()
-            try {
-                val service = ServiceList.all().firstOrNull {
-                    try { it.getStreamExtractor(videoUrl) != null } catch (e: Exception) { false }
-                } ?: youtube
+            retry(attempts = 2) {
+                init()
+                val service = serviceForUrl(videoUrl)
                 val info = StreamInfo.getInfo(service, videoUrl)
 
-                val best = info.audioStreams
+                val audio = info.audioStreams
                     .filter { it.content != null }
-                    .maxByOrNull { it.averageBitrate }
+                    // Prefer normal/medium bitrates for stable car playback, but fall back to best.
+                    .sortedWith(
+                        compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> {
+                            val br = it.averageBitrate
+                            if (br in 96..256) 1 else 0
+                        }.thenByDescending { it.averageBitrate }
+                    )
+                    .firstOrNull()
                     ?.content
                     ?: info.videoStreams
                         .filter { it.content != null }
-                        .firstOrNull()
+                        .minByOrNull { parseHeight(it.resolution) }
                         ?.content
 
-                best?.also { url ->
-                    audioUrlCache[videoUrl] = url to (System.currentTimeMillis() + CACHE_TTL_MS)
+                audio?.also { url ->
+                    audioUrlCache[videoUrl] = Cached(url, System.currentTimeMillis() + CACHE_TTL_MS)
                 }
-            } catch (e: Exception) {
-                null
             }
         }
     }
 
+    /**
+     * Resolve a full video-capable stream result. Prefer muxed MP4 <=720p for a car screen.
+     */
     suspend fun resolveUrl(videoUrl: String): StreamResult = withContext(Dispatchers.IO) {
-        init()
-        val service = ServiceList.all().firstOrNull {
-            try { it.getStreamExtractor(videoUrl) != null } catch (e: Exception) { false }
-        } ?: youtube
-
-        val info: StreamInfo = StreamInfo.getInfo(service, videoUrl)
-
-        val muxed = info.videoStreams
-            .filter { it.content != null && it.format?.mimeType?.contains("mp4") == true }
-            .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
-
-        if (muxed?.content != null) {
-            return@withContext StreamResult(
-                title = info.name,
-                durationSeconds = info.duration,
-                videoStreamUrl = muxed.content,
-                audioStreamUrl = null,
-                isMuxed = true,
-                thumbnailUrl = info.thumbnails.firstOrNull()?.url,
-                uploader = info.uploaderName,
-                originalUrl = videoUrl
-            )
+        streamCache[videoUrl]?.let { cached ->
+            if (cacheValid(cached.expiryMs)) return@withContext cached.value
         }
 
-        val videoOnly = info.videoOnlyStreams
-            .filter { it.content != null }
-            .maxByOrNull { it.resolution?.removeSuffix("p")?.toIntOrNull() ?: 0 }
-        val audioOnly = info.audioStreams
-            .filter { it.content != null }
-            .maxByOrNull { it.averageBitrate }
+        retry(attempts = 2) {
+            init()
+            val service = serviceForUrl(videoUrl)
+            val info = StreamInfo.getInfo(service, videoUrl)
 
-        StreamResult(
-            title = info.name,
-            durationSeconds = info.duration,
-            videoStreamUrl = videoOnly?.content,
-            audioStreamUrl = audioOnly?.content,
-            isMuxed = false,
-            thumbnailUrl = info.thumbnails.firstOrNull()?.url,
-            uploader = info.uploaderName,
-            originalUrl = videoUrl
-        )
+            val muxed = info.videoStreams
+                .filter { it.content != null && isMp4(it.format?.mimeType) }
+                .sortedWith(
+                    compareBy<org.schabi.newpipe.extractor.stream.VideoStream> {
+                        val h = parseHeight(it.resolution)
+                        if (h in 1..MAX_VIDEO_HEIGHT) 0 else 1
+                    }.thenByDescending { parseHeight(it.resolution) }
+                )
+                .firstOrNull()
+
+            val audioOnly = info.audioStreams
+                .filter { it.content != null }
+                .sortedWith(
+                    compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> {
+                        val br = it.averageBitrate
+                        if (br in 96..256) 1 else 0
+                    }.thenByDescending { it.averageBitrate }
+                )
+                .firstOrNull()
+
+            val result = if (muxed?.content != null) {
+                StreamResult(
+                    title = info.name,
+                    durationSeconds = info.duration,
+                    videoStreamUrl = muxed.content,
+                    audioStreamUrl = null,
+                    isMuxed = true,
+                    thumbnailUrl = info.thumbnails.firstOrNull()?.url,
+                    uploader = info.uploaderName,
+                    originalUrl = videoUrl
+                )
+            } else {
+                val videoOnly = info.videoOnlyStreams
+                    .filter { it.content != null }
+                    .sortedWith(
+                        compareBy<org.schabi.newpipe.extractor.stream.VideoStream> {
+                            val h = parseHeight(it.resolution)
+                            if (h in 1..MAX_VIDEO_HEIGHT) 0 else 1
+                        }.thenByDescending { parseHeight(it.resolution) }
+                    )
+                    .firstOrNull()
+
+                StreamResult(
+                    title = info.name,
+                    durationSeconds = info.duration,
+                    videoStreamUrl = videoOnly?.content,
+                    audioStreamUrl = audioOnly?.content,
+                    isMuxed = false,
+                    thumbnailUrl = info.thumbnails.firstOrNull()?.url,
+                    uploader = info.uploaderName,
+                    originalUrl = videoUrl
+                )
+            }
+
+            streamCache[videoUrl] = Cached(result, System.currentTimeMillis() + CACHE_TTL_MS)
+            audioOnly?.content?.let { audio ->
+                audioUrlCache[videoUrl] = Cached(audio, System.currentTimeMillis() + CACHE_TTL_MS)
+            }
+            result
+        }
     }
 
     suspend fun resolveSearch(query: String, serviceId: Int = 0): StreamResult? = withContext(Dispatchers.IO) {
@@ -129,13 +200,35 @@ object YouTubeExtractorService {
 
     suspend fun search(query: String, limit: Int = 20, serviceId: Int = 0): List<SearchResultItem> =
         withContext(Dispatchers.IO) {
+            retry(attempts = 2) {
+                init()
+                val service = if (serviceId == 1) soundcloud else youtube
+                val searchInfo = SearchInfo.getInfo(service, service.searchQHFactory.fromQuery(query))
+                searchInfo.relatedItems
+                    .filterIsInstance<StreamInfoItem>()
+                    .filter { it.url != null }
+                    .take(limit)
+                    .map { item ->
+                        SearchResultItem(
+                            title = item.name,
+                            url = item.url,
+                            uploader = item.uploaderName,
+                            durationSeconds = item.duration,
+                            thumbnailUrl = item.thumbnails.firstOrNull()?.url
+                        )
+                    }
+            }
+        }
+
+    suspend fun getTrending(serviceId: Int = 0): List<SearchResultItem> = withContext(Dispatchers.IO) {
+        retry(attempts = 2) {
             init()
             val service = if (serviceId == 1) soundcloud else youtube
-            val searchInfo = SearchInfo.getInfo(service, service.searchQHFactory.fromQuery(query))
-            searchInfo.relatedItems
+            val kiosk = service.kioskList.getDefaultKioskId()
+            val info = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(service, kiosk)
+            info.relatedItems
                 .filterIsInstance<StreamInfoItem>()
-                .filter { it.url != null }
-                .take(limit)
+                .take(20)
                 .map { item ->
                     SearchResultItem(
                         title = item.name,
@@ -146,23 +239,5 @@ object YouTubeExtractorService {
                     )
                 }
         }
-
-    suspend fun getTrending(serviceId: Int = 0): List<SearchResultItem> = withContext(Dispatchers.IO) {
-        init()
-        val service = if (serviceId == 1) soundcloud else youtube
-        val kiosk = service.kioskList.getDefaultKioskId()
-        val info = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(service, kiosk)
-        info.relatedItems
-            .filterIsInstance<StreamInfoItem>()
-            .take(20)
-            .map { item ->
-                SearchResultItem(
-                    title = item.name,
-                    url = item.url,
-                    uploader = item.uploaderName,
-                    durationSeconds = item.duration,
-                    thumbnailUrl = item.thumbnails.firstOrNull()?.url
-                )
-            }
     }
 }
