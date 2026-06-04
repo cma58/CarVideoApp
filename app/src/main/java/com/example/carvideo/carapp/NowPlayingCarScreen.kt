@@ -42,6 +42,17 @@ class NowPlayingCarScreen(carContext: CarContext) : Screen(carContext) {
             )
         }
 
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle("Vorige")
+                .addText("Speel vorige item")
+                .setOnClickListener {
+                    PlayerHolder.skipPrevious { }
+                    invalidate()
+                }
+                .build()
+        )
+
         if (playlist.isNotEmpty()) {
             listBuilder.addItem(
                 Row.Builder()
@@ -60,14 +71,6 @@ class NowPlayingCarScreen(carContext: CarContext) : Screen(carContext) {
             }
         }
 
-        val previous = Action.Builder()
-            .setIcon(icon(android.R.drawable.ic_media_previous))
-            .setOnClickListener {
-                PlayerHolder.skipPrevious { /* list screen keeps current safe */ }
-                invalidate()
-            }
-            .build()
-
         val playPause = Action.Builder()
             .setIcon(icon(if (PlayerHolder.isPlaying()) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play))
             .setOnClickListener {
@@ -79,13 +82,12 @@ class NowPlayingCarScreen(carContext: CarContext) : Screen(carContext) {
         val next = Action.Builder()
             .setIcon(icon(android.R.drawable.ic_media_next))
             .setOnClickListener {
-                PlayerHolder.skipNext { /* list screen keeps current safe */ }
+                PlayerHolder.skipNext { }
                 invalidate()
             }
             .build()
 
         val actionStrip = ActionStrip.Builder()
-            .addAction(previous)
             .addAction(playPause)
             .addAction(next)
             .build()
