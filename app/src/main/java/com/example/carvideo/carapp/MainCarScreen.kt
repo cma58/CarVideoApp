@@ -34,9 +34,10 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
         if (current != null) {
             listBuilder.addItem(
                 Row.Builder()
-                    .setTitle("Nu speelt")
+                    .setTitle("Wordt nu afgespeeld")
                     .addText(current.title.ifBlank { "Onbekende titel" })
                     .addText(current.uploader ?: "")
+                    .setOnClickListener { screenManager.push(NowPlayingCarScreen(carContext)) }
                     .build()
             )
         }
@@ -192,7 +193,7 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext) {
                 }
 
                 PlayerHolder.play(stream)
-                invalidate()
+                screenManager.push(NowPlayingCarScreen(carContext))
             } catch (e: Exception) {
                 Log.e("CarVideoApp", "MainCarScreen: Error playing", e)
                 errorMessage = "Afspelen mislukt: ${e.message ?: "onbekende fout"}"
