@@ -1,0 +1,6 @@
+Stable baseline confirmed.
+Phone app works.
+Android Auto opens.
+Search works.
+Playback controls work.
+Next phase is UI improvement.
