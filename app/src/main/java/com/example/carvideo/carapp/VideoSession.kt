@@ -12,11 +12,10 @@ class VideoSession : Session() {
 
     override fun onCreateScreen(intent: Intent): Screen {
         Log.d("CarVideoApp", "VideoSession: onCreateScreen with intent: $intent")
-        
-        // If music is already playing, jump straight to the player screen
+
         return if (PlaybackState.current.value != null) {
-            Log.d("CarVideoApp", "VideoSession: Already playing, launching VideoScreen")
-            VideoScreen(carContext)
+            Log.d("CarVideoApp", "VideoSession: Already playing, launching NowPlayingCarScreen")
+            NowPlayingCarScreen(carContext)
         } else {
             Log.d("CarVideoApp", "VideoSession: Not playing, launching MainCarScreen")
             MainCarScreen(carContext)
