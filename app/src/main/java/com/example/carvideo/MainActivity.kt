@@ -4,11 +4,14 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -44,7 +48,7 @@ import com.example.carvideo.update.UpdateInfo
 import com.example.carvideo.ui.CarVideoTheme
 import kotlinx.coroutines.launch
 
-@UnstableApi
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,10 +97,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@UnstableApi
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: SearchViewModel = viewModel()) {
+fun HomeScreen(vm: SearchViewModel) {
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -238,12 +241,14 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
         },
         bottomBar = {
             val nextItem = vm.getNextItem()
+            val state by vm.state.collectAsState()
             val currentStream by com.example.carvideo.player.PlaybackState.current.collectAsState()
             val videoMode by vm.videoMode.collectAsState()
             
             com.example.carvideo.ui.NowPlayingBar(
                 nextUpTitle = nextItem?.title,
                 isLiked = currentStream?.let { vm.isLiked(it.originalUrl ?: "") } ?: false,
+                isFailover = state.isFailover,
                 onLikeClick = {
                     currentStream?.let { stream ->
                         vm.toggleLike(
@@ -271,16 +276,16 @@ fun HomeScreen(vm: SearchViewModel = viewModel()) {
                 .padding(padding)
         ) {
             when (selectedTab) {
-                0 -> ResultsList(state.forYou) { vm.play(it, state.forYou) }
-                1 -> ResultsList(state.trending) { vm.play(it, state.trending) }
-                2 -> ResultsList(state.history) { vm.play(it, state.history) }
+                0 -> ResultsList(state.forYou, vm) { vm.play(it, state.forYou) }
+                1 -> ResultsList(state.trending, vm) { vm.play(it, state.trending) }
+                2 -> ResultsList(state.history, vm) { vm.play(it, state.history) }
                 3 -> SearchContent(query, { query = it }, { vm.search(query) }, state, vm)
             }
         }
     }
 }
 
-@UnstableApi
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchContent(
     query: String,
@@ -316,20 +321,21 @@ private fun SearchContent(
         } else if (state.error != null) {
             Text(state.error, color = MaterialTheme.colorScheme.error)
         } else {
-            ResultsList(state.results) { vm.play(it, state.results) }
+            ResultsList(state.results, vm) { vm.play(it, state.results) }
         }
     }
 }
 
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun ResultsList(items: List<SearchResultItem>, onItemClick: (SearchResultItem) -> Unit) {
+private fun ResultsList(items: List<SearchResultItem>, vm: SearchViewModel, onItemClick: (SearchResultItem) -> Unit) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(16.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(items) { item ->
-            ResultCard(item) { onItemClick(item) }
+            ResultCard(item, vm) { onItemClick(item) }
         }
     }
 }
@@ -362,29 +368,58 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onSearch: 
     }
 }
 
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun ResultCard(item: SearchResultItem, onClick: () -> Unit) {
+private fun ResultCard(item: SearchResultItem, vm: SearchViewModel, onClick: () -> Unit) {
+    val isLiked = vm.isLiked(item.url)
+    val currentStream by com.example.carvideo.player.PlaybackState.current.collectAsState()
+    val isPlayingThis = currentStream?.originalUrl == item.url
+    
+    val cornerSize by animateDpAsState(
+        targetValue = if (isPlayingThis) 32.dp else if (isLiked) 28.dp else 24.dp,
+        animationSpec = tween(500),
+        label = "shape"
+    )
+
     ElevatedCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(cornerSize),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+            containerColor = when {
+                isPlayingThis -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                isLiked -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+            }
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = if (isPlayingThis) 8.dp else 2.dp)
     ) {
         Row(
             Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = item.thumbnailUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(width = 120.dp, height = 68.dp)
-                    .clip(RoundedCornerShape(16.dp))
-            )
+            Box {
+                AsyncImage(
+                    model = item.thumbnailUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(width = 120.dp, height = 68.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                )
+                if (isLiked) {
+                    Icon(
+                        Icons.Default.Favorite,
+                        null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .align(Alignment.TopStart)
+                            .padding(4.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                    )
+                }
+            }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -442,7 +477,7 @@ fun SettingsDialog(
                 }
 
                 Spacer(Modifier.height(24.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(Modifier.height(16.dp))
 
                 Text("Updates", style = MaterialTheme.typography.labelLarge)
@@ -477,7 +512,7 @@ fun SettingsDialog(
                 OutlinedButton(onClick = onInstallUpdate) { Text("Installeren na download") }
 
                 Spacer(Modifier.height(24.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(Modifier.height(16.dp))
 
                 Text("Crash log", style = MaterialTheme.typography.labelLarge)

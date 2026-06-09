@@ -5,7 +5,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.example.carvideo.player.PlaybackState
 
 private val SpotifyDarkScheme = darkColorScheme(
     primary = Color(0xFF1DB954),
@@ -50,14 +54,38 @@ fun CarVideoTheme(
     themeMode: Int = 0,
     content: @Composable () -> Unit
 ) {
+    val dominantColorInt by PlaybackState.dominantColor.collectAsState()
+    
     val darkTheme = when (themeMode) {
         1 -> false
         2 -> true
         else -> isSystemInDarkTheme()
     }
 
+    val baseScheme = if (darkTheme) SpotifyDarkScheme else SpotifyLightScheme
+    
+    // Dynamic color depth logic
+    val finalScheme = if (dominantColorInt != null) {
+        val seedColor = Color(dominantColorInt!!)
+        if (darkTheme) {
+            baseScheme.copy(
+                primary = seedColor,
+                surfaceContainer = seedColor.copy(alpha = 0.1f),
+                background = Color(0xFF050505) // Keep background dark for contrast
+            )
+        } else {
+            baseScheme.copy(
+                primary = seedColor,
+                primaryContainer = seedColor.copy(alpha = 0.2f),
+                background = seedColor.copy(alpha = 0.05f)
+            )
+        }
+    } else {
+        baseScheme
+    }
+
     MaterialTheme(
-        colorScheme = if (darkTheme) SpotifyDarkScheme else SpotifyLightScheme,
+        colorScheme = finalScheme,
         typography = MaterialTheme.typography,
         content = content
     )

@@ -2,6 +2,7 @@ package com.example.carvideo.ui
 
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import java.util.Locale
 fun NowPlayingBar(
     nextUpTitle: String?,
     isLiked: Boolean,
+    isFailover: Boolean = false,
     onLikeClick: () -> Unit,
     onNextClick: () -> Unit,
     onPreviousClick: () -> Unit,
@@ -52,6 +54,12 @@ fun NowPlayingBar(
     val stream = currentStream ?: return
 
     val isPlaying = PlayerHolder.isPlaying()
+    val cornerSize by animateDpAsState(
+        targetValue = if (isPlaying) 28.dp else 20.dp,
+        animationSpec = tween(800),
+        label = "morph"
+    )
+    
     var playingState by remember { mutableStateOf(isPlaying) }
     var showFullPlayer by remember { mutableStateOf(false) }
 
@@ -60,6 +68,7 @@ fun NowPlayingBar(
             stream = stream,
             nextUpTitle = nextUpTitle,
             isLiked = isLiked,
+            isFailover = isFailover,
             onDismiss = { showFullPlayer = false },
             onLikeClick = onLikeClick,
             onNextClick = onNextClick,
@@ -75,10 +84,10 @@ fun NowPlayingBar(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .height(72.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(cornerSize))
             .graphicsLayer {
                 shadowElevation = 8f
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(cornerSize)
                 clip = true
             }
             .clickable(onClick = { showFullPlayer = true }),
@@ -147,6 +156,7 @@ fun FullPlayerSheet(
     stream: com.example.carvideo.extractor.StreamResult,
     nextUpTitle: String?,
     isLiked: Boolean,
+    isFailover: Boolean = false,
     onDismiss: () -> Unit,
     onLikeClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -180,9 +190,12 @@ fun FullPlayerSheet(
                 Palette.from(bitmap).generate { palette ->
                     palette?.dominantSwatch?.let {
                         dominantColor = Color(it.rgb)
+                        PlaybackState.setDominantColor(it.rgb)
                     }
                 }
             }
+        } else {
+            PlaybackState.setDominantColor(null)
         }
     }
 
@@ -271,6 +284,19 @@ fun FullPlayerSheet(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (isFailover) {
+                    Spacer(Modifier.height(8.dp))
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("Failover: Bezig met herstellen...", style = MaterialTheme.typography.labelSmall) },
+                        icon = { Icon(Icons.Default.Sync, null, modifier = Modifier.size(16.dp)) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            labelColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    )
+                }
 
                 Spacer(Modifier.height(24.dp))
 

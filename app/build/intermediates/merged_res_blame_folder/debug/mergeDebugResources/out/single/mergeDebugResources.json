@@ -1,10 +1,10 @@
 [
     {
-        "merged": "com.example.carvideo.app-debug-33:/xml_automotive_app_desc.xml.flat",
-        "source": "com.example.carvideo.app-main-35:/xml/automotive_app_desc.xml"
+        "merged": "com.example.carvideo.app-debug-54:/xml_automotive_app_desc.xml.flat",
+        "source": "com.example.carvideo.app-main-56:/xml/automotive_app_desc.xml"
     },
     {
-        "merged": "com.example.carvideo.app-debug-33:/layout_activity_main.xml.flat",
-        "source": "com.example.carvideo.app-main-35:/layout/activity_main.xml"
+        "merged": "com.example.carvideo.app-debug-54:/xml_file_paths.xml.flat",
+        "source": "com.example.carvideo.app-main-56:/xml/file_paths.xml"
     }
 ]

@@ -19,6 +19,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionError
 import com.example.carvideo.extractor.YouTubeExtractorService
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -28,13 +29,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Media playback service for phone, notification and Android Auto media mode.
- *
- * This is now a MediaLibraryService instead of a plain MediaSessionService. That
- * gives Android Auto a real media-library entry point, which is the direction
- * needed for the native Spotify-like player surface.
  */
 @UnstableApi
 class PlaybackService : MediaLibraryService() {
@@ -42,13 +40,13 @@ class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val NOTIFICATION_ID = 101
-    private val CHANNEL_ID = "car_video_playback_channel"
-    private val COMMAND_LIKE = "com.example.carvideo.LIKE"
+    private val notificationId = 101
+    private val channelId = "car_video_playback_channel"
+    private val commandLike = "com.example.carvideo.LIKE"
 
-    private val ROOT_ID = "root"
-    private val QUEUE_ID = "queue"
-    private val NOW_PLAYING_ID = "now_playing"
+    private val rootId = "root"
+    private val queueId = "queue"
+    private val nowPlayingId = "now_playing"
 
     override fun onCreate() {
         super.onCreate()
@@ -75,7 +73,7 @@ class PlaybackService : MediaLibraryService() {
         @Suppress("DEPRECATION")
         val likeButton = CommandButton.Builder()
             .setDisplayName("Like")
-            .setSessionCommand(SessionCommand(COMMAND_LIKE, Bundle.EMPTY))
+            .setSessionCommand(SessionCommand(commandLike, Bundle.EMPTY))
             .setIconResId(android.R.drawable.btn_star)
             .build()
 
@@ -93,8 +91,6 @@ class PlaybackService : MediaLibraryService() {
                 updateForegroundNotification()
             }
         })
-
-        updateForegroundNotification()
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
@@ -104,10 +100,10 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            return if (customCommand.customAction == COMMAND_LIKE) {
+            return if (customCommand.customAction == commandLike) {
                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             } else {
-                Futures.immediateFuture(SessionResult(ERROR_NOT_SUPPORTED))
+                Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
         }
 
@@ -128,9 +124,9 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val items = when (parentId) {
-                ROOT_ID -> listOf(nowPlayingFolder(), queueFolder())
-                QUEUE_ID -> PlaybackState.playlist.value.map { it.toLibraryMediaItem() }
-                NOW_PLAYING_ID -> PlaybackState.current.value?.let { listOf(it.toNowPlayingMediaItem()) } ?: emptyList()
+                rootId -> listOf(nowPlayingFolder(), queueFolder())
+                queueId -> PlaybackState.playlist.value.map { it.toLibraryMediaItem() }
+                nowPlayingId -> PlaybackState.current.value?.let { listOf(it.toNowPlayingMediaItem()) } ?: emptyList()
                 else -> emptyList()
             }
             return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
@@ -142,16 +138,47 @@ class PlaybackService : MediaLibraryService() {
             mediaId: String
         ): ListenableFuture<LibraryResult<MediaItem>> {
             val item = when (mediaId) {
-                ROOT_ID -> rootItem()
-                QUEUE_ID -> queueFolder()
-                NOW_PLAYING_ID -> nowPlayingFolder()
+                rootId -> rootItem()
+                queueId -> queueFolder()
+                nowPlayingId -> nowPlayingFolder()
                 else -> PlaybackState.playlist.value.firstOrNull { it.url == mediaId }?.toLibraryMediaItem()
             }
             return if (item != null) {
                 Futures.immediateFuture(LibraryResult.ofItem(item, null))
             } else {
-                Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
             }
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            session.notifySearchResultChanged(browser, query, 10, params)
+            return Futures.immediateFuture(LibraryResult.ofVoid())
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch {
+                try {
+                    val results = YouTubeExtractorService.search(query, limit = pageSize)
+                    val mediaItems = results.map { it.toLibraryMediaItem() }
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params))
+                } catch (_: Exception) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                }
+            }
+            return future
         }
 
         override fun onAddMediaItems(
@@ -185,9 +212,9 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun rootItem(): MediaItem = folder(ROOT_ID, "Car Video")
-    private fun queueFolder(): MediaItem = folder(QUEUE_ID, "Wachtrij")
-    private fun nowPlayingFolder(): MediaItem = folder(NOW_PLAYING_ID, "Wordt nu afgespeeld")
+    private fun rootItem(): MediaItem = folder(rootId, "Car Video")
+    private fun queueFolder(): MediaItem = folder(queueId, "Wachtrij")
+    private fun nowPlayingFolder(): MediaItem = folder(nowPlayingId, "Wordt nu afgespeeld")
 
     private fun folder(id: String, title: String): MediaItem =
         MediaItem.Builder()
@@ -231,7 +258,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID,
+            channelId,
             "Media Playback",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
@@ -251,7 +278,7 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
         }
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(metadata.title ?: "Car Video")
             .setContentText(metadata.artist ?: "Aan het afspelen...")
@@ -263,7 +290,7 @@ class PlaybackService : MediaLibraryService() {
             .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(notificationId, notification)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
@@ -279,9 +306,5 @@ class PlaybackService : MediaLibraryService() {
         mediaSession?.release()
         mediaSession = null
         super.onDestroy()
-    }
-
-    companion object {
-        private const val ERROR_NOT_SUPPORTED = -1003
     }
 }

@@ -14,6 +14,10 @@ data class StreamResult(
     val videoStreamUrl: String?,
     /** Audio-only stream (.m4a / .webm). Null if only a muxed stream is used. */
     val audioStreamUrl: String?,
+    /** Manifest for adaptive streaming (SoundCloud / YouTube HLS). */
+    val hlsUrl: String? = null,
+    /** Manifest for adaptive streaming (YouTube DASH). */
+    val dashUrl: String? = null,
     /** True when videoStreamUrl already contains audio (no merging needed). */
     val isMuxed: Boolean,
     val thumbnailUrl: String?,

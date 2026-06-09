@@ -7,6 +7,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.example.carvideo.extractor.StreamResult
@@ -55,11 +57,9 @@ object PlayerHolder {
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackState.setError("Playback-fout: ${error.errorCodeName}")
-                        if (exo.hasNextMediaItem()) {
-                            exo.seekToNextMediaItem()
-                            exo.prepare()
-                            exo.play()
-                        }
+                        // We laten de ViewModel de failover afhandelen via de listener.
+                        // Pas als die niets doet of faalt, zou de gebruiker handmatig kunnen skippen of 
+                        // kunnen we hier een algemene fallback doen.
                     }
                 })
                 startProgressMonitor()
@@ -139,6 +139,33 @@ object PlayerHolder {
 
         try {
             when {
+                // Prioriteit 1: DASH (YouTube Adaptive)
+                stream.dashUrl != null -> {
+                    p.setMediaSource(
+                        DashMediaSource.Factory(httpFactory)
+                            .createMediaSource(
+                                MediaItem.Builder()
+                                    .setUri(stream.dashUrl)
+                                    .setMediaId(stream.originalUrl ?: stream.dashUrl)
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                    )
+                }
+                // Prioriteit 2: HLS (SoundCloud / YouTube Fallback)
+                stream.hlsUrl != null -> {
+                    p.setMediaSource(
+                        HlsMediaSource.Factory(httpFactory)
+                            .createMediaSource(
+                                MediaItem.Builder()
+                                    .setUri(stream.hlsUrl)
+                                    .setMediaId(stream.originalUrl ?: stream.hlsUrl)
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                    )
+                }
+                // Prioriteit 3: Progressive Video (MP4)
                 stream.isMuxed && stream.videoStreamUrl != null -> {
                     p.setMediaItem(
                         MediaItem.Builder()
@@ -148,6 +175,7 @@ object PlayerHolder {
                             .build()
                     )
                 }
+                // Prioriteit 4: Merged Video/Audio (Old way)
                 stream.videoStreamUrl != null && stream.audioStreamUrl != null -> {
                     val videoSource = ProgressiveMediaSource.Factory(httpFactory)
                         .createMediaSource(
@@ -167,6 +195,7 @@ object PlayerHolder {
                         )
                     p.setMediaSource(MergingMediaSource(videoSource, audioSource))
                 }
+                // Prioriteit 5: Audio Only
                 stream.audioStreamUrl != null -> {
                     p.setMediaItem(
                         MediaItem.Builder()

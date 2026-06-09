@@ -19,8 +19,17 @@ object PlaybackState {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    // Dynamic color support
+    private val _dominantColor = MutableStateFlow<Int?>(null)
+    val dominantColor: StateFlow<Int?> = _dominantColor
+
     fun setCurrent(stream: StreamResult?) {
         _current.value = stream
+        if (stream == null) _dominantColor.value = null
+    }
+
+    fun setDominantColor(color: Int?) {
+        _dominantColor.value = color
     }
 
     fun setPlaylist(list: List<SearchResultItem>) {

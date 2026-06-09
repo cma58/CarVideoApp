@@ -1,7 +1,5 @@
 R_DEF: Internal format may change without notice
 local
-id inputField
-id playButton
-layout activity_main
 string app_name
 xml automotive_app_desc
+xml file_paths

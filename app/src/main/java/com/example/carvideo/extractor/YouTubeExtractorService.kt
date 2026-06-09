@@ -156,6 +156,8 @@ object YouTubeExtractorService {
                     durationSeconds = info.duration,
                     videoStreamUrl = muxed.content,
                     audioStreamUrl = null,
+                    hlsUrl = info.hlsUrl,
+                    dashUrl = info.dashMpdUrl,
                     isMuxed = true,
                     thumbnailUrl = info.thumbnails.firstOrNull()?.url,
                     uploader = info.uploaderName,
@@ -177,6 +179,8 @@ object YouTubeExtractorService {
                     durationSeconds = info.duration,
                     videoStreamUrl = videoOnly?.content,
                     audioStreamUrl = audioOnly?.content,
+                    hlsUrl = info.hlsUrl,
+                    dashUrl = info.dashMpdUrl,
                     isMuxed = false,
                     thumbnailUrl = info.thumbnails.firstOrNull()?.url,
                     uploader = info.uploaderName,
@@ -196,6 +200,40 @@ object YouTubeExtractorService {
         init()
         val first = search(query, 1, serviceId).firstOrNull() ?: return@withContext null
         resolveUrl(first.url)
+    }
+
+    /**
+     * Zoekt een vergelijkbaar nummer op de andere service als de huidige faalt.
+     * Dit zorgt voor de "Automatic Failover" tussen YouTube en SoundCloud.
+     */
+    suspend fun findMirror(
+        title: String,
+        uploader: String?,
+        durationSeconds: Long,
+        currentServiceId: Int
+    ): StreamResult? = withContext(Dispatchers.IO) {
+        val targetServiceId = if (currentServiceId == 0) 1 else 0
+        // Clean title: remove common tags that hinder matching
+        val cleanTitle = title
+            .replace(Regex("(?i)\\(official.*?\\)"), "")
+            .replace(Regex("(?i)\\[official.*?\\]"), "")
+            .trim()
+        
+        val query = if (uploader != null) "$cleanTitle $uploader" else cleanTitle
+        
+        try {
+            val results = search(query, limit = 5, serviceId = targetServiceId)
+            
+            // Zoek de beste match op basis van duur (marge van 20 seconden of 15%)
+            val match = results.find { item ->
+                val diff = Math.abs(item.durationSeconds - durationSeconds)
+                diff < 20 || diff < (durationSeconds * 0.15)
+            } ?: results.firstOrNull() // Fallback naar eerste resultaat
+            
+            match?.let { resolveUrl(it.url) }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     suspend fun search(query: String, limit: Int = 20, serviceId: Int = 0): List<SearchResultItem> =

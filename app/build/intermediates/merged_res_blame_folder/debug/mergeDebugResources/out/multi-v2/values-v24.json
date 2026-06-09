@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.carvideo.app-mergeDebugResources-31:/values-v24/values-v24.xml",
+            "outputFile": "com.example.carvideo.app-mergeDebugResources-52:/values-v24/values-v24.xml",
             "map": [
                 {
-                    "source": "/data/data/com.termux/files/home/.gradle/caches/8.9/transforms/f5fd0c4db23e1df5b60830f4c7dda1ab/transformed/appcompat-1.7.0/res/values-v24/values-v24.xml",
+                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\41c94eae98af8893018375e6fcb753a0\\transformed\\appcompat-1.7.0\\res\\values-v24\\values-v24.xml",
                     "from": {
                         "startLines": "2,3",
                         "startColumns": "4,4",
@@ -14,7 +14,7 @@
                     }
                 },
                 {
-                    "source": "/data/data/com.termux/files/home/.gradle/caches/8.9/transforms/b6e6a4210f10a8b7205d0624d135f2af/transformed/media3-session-1.4.0/res/values-v24/values-v24.xml",
+                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\8d7523186f0083e0f45d9541a064dd28\\transformed\\jetified-media3-session-1.10.1\\res\\values-v24\\values-v24.xml",
                     "from": {
                         "startLines": "2,3,4,5",
                         "startColumns": "4,4,4,4",
