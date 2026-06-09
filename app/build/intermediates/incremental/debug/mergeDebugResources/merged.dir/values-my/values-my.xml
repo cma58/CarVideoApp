@@ -44,7 +44,8 @@
     <string msgid="8875138169939072951" name="abc_shareactionprovider_share_with">"နှင့် မျှဝေရန်"</string>
     <string msgid="9055268688411532828" name="abc_shareactionprovider_share_with_application">"<ns1:g id="APPLICATION_NAME">%s</ns1:g> ဖြင့် မျှဝေရန်"</string>
     <string msgid="1656852541809559762" name="abc_toolbar_collapse_description">"လျှော့ပြရန်"</string>
-    <string msgid="389117264260014992" name="autofill">"အော်တိုဖြည့်"</string>
+    <string msgid="8719607706653693137" name="androidx_compose_foundation_autofill">"အော်တိုဖြည့်"</string>
+    <string msgid="1150566100598813236" name="androidx_compose_ui_autofill">"အော်တိုဖြည့်"</string>
     <string msgid="881409763997275156" name="call_notification_answer_action">"ဖုန်းကိုင်ရန်"</string>
     <string msgid="8793775615905189152" name="call_notification_answer_video_action">"ဗီဒီယို"</string>
     <string msgid="3229508546291798546" name="call_notification_decline_action">"ငြင်းပယ်ရန်"</string>
@@ -213,6 +214,6 @@
     <string msgid="2561197295334830845" name="switch_role">"ပြောင်းရန်"</string>
     <string msgid="1672349317127674378" name="tab">"တဘ်"</string>
     <string msgid="5946805113151406391" name="template_percent">"<ns1:g id="PERCENTAGE">%1$d</ns1:g> ရာခိုင်နှုန်း။"</string>
-    <string msgid="3765533235322692011" name="tooltip_description">"အကြံပြုချက်ပြ ပေါ့အပ် ဝင်းဒိုး"</string>
+    <string msgid="3765533235322692011" name="tooltip_description">"အကြံပြုချက်အကွက်"</string>
     <string msgid="3124740595719787496" name="tooltip_label">"အကြံပြုချက်ပြ ပေါ့အပ်ဝင်းဒိုး ပြရန်"</string>
 </resources>

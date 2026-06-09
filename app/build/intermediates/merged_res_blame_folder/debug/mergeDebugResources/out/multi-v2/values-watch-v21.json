@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.carvideo.app-mergeDebugResources-52:/values-watch-v21/values-watch-v21.xml",
+            "outputFile": "com.example.carvideo.app-mergeDebugResources-50:/values-watch-v21/values-watch-v21.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\41c94eae98af8893018375e6fcb753a0\\transformed\\appcompat-1.7.0\\res\\values-watch-v21\\values-watch-v21.xml",
+                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\5f992b770f13550324373ede105e3d4d\\transformed\\appcompat-1.7.1\\res\\values-watch-v21\\values-watch-v21.xml",
                     "from": {
                         "startLines": "2,6,10",
                         "startColumns": "4,4,4",

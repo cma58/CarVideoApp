@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.carvideo.app-mergeDebugResources-52:/values-night-v8/values-night-v8.xml",
+            "outputFile": "com.example.carvideo.app-mergeDebugResources-50:/values-night-v8/values-night-v8.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\41c94eae98af8893018375e6fcb753a0\\transformed\\appcompat-1.7.0\\res\\values-night-v8\\values-night-v8.xml",
+                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\5f992b770f13550324373ede105e3d4d\\transformed\\appcompat-1.7.1\\res\\values-night-v8\\values-night-v8.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",
@@ -21,7 +21,7 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\c36fc390393a4d8c05e80938b7f2b2af\\transformed\\jetified-app-1.7.0\\res\\values-night-v8\\values-night-v8.xml",
+                    "source": "C:\\Users\\dell\\.gradle\\caches\\9.4.1\\transforms\\082317e1bc4386153499373a1b33f761\\transformed\\jetified-app-1.7.0\\res\\values-night-v8\\values-night-v8.xml",
                     "from": {
                         "startLines": "2,3,4,5",
                         "startColumns": "4,4,4,4",
